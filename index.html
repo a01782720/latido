@@ -645,20 +645,20 @@ function adaptStep(dt) {
   arousal += (target - arousal) * Math.min(1, dt * 1.2);
   pulse = Math.max(0, pulse - dt * 4);
   const a = arousal;
-  scene.fog.density = 0.06 + a * 0.07;
+  scene.fog.density = 0.06 + a * 0.05;
   scene.fog.color.copy(FOG).lerp(FOG_HIGH, a); scene.background.copy(scene.fog.color);
-  hemi.intensity = 0.35 - a * 0.27;
-  flashlight.color.copy(C_WARM).lerp(C_RED, a * 0.8);
-  flashlight.angle = 0.42 - a * 0.12; flashlight.distance = 18 - a * 7;
+  hemi.intensity = 0.35 - a * 0.15;
+  flashlight.color.copy(C_WARM).lerp(C_RED, a * 0.45);
+  flashlight.angle = 0.42 - a * 0.1; flashlight.distance = 18 - a * 4;
   const out = sim.t < blackoutUntil;
   const flickP = sim.t < flickerUntil ? 0.35 : a * a * 0.08;
-  let fl = (60 - a * 34) * (1 - 0.5 * a * pulse);          // light throbs with each heartbeat when aroused
+  let fl = (60 - a * 12) * (1 - 0.45 * a * pulse);          // light throbs with each heartbeat when aroused
   if (Math.random() < flickP) fl *= Math.random() * 0.3;
   flashlight.intensity = out ? 0 : fl;
   bulbs.forEach(b => { const on = !out && Math.random() > flickP * 1.5;
     b.l.color.copy(C_BULB).lerp(C_BULB_RED, a); b.b.material.color.copy(b.l.color);
     b.l.intensity = on ? b.base * (1 - 0.75 * a) : 0.1; b.b.visible = on; });
-  $('vignette').style.opacity = (a * 0.75 + pulse * a * 0.25).toFixed(2);
+  $('vignette').style.opacity = (a * 0.6 + pulse * a * 0.25).toFixed(2);
   if (AC) { droneGain.gain.setTargetAtTime(0.10 + a * 0.2, AC.currentTime, 0.5); windGain.gain.setTargetAtTime(0.04 + a * 0.07, AC.currentTime, 0.5);
     hbGain.gain.setTargetAtTime(Math.min(0.8, a * 1.1), AC.currentTime, 0.4); droneFilter.frequency.setTargetAtTime(180 + a * 380, AC.currentTime, 0.8); }
   directorStep(); monsterDirector();
