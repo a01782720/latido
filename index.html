@@ -35,6 +35,10 @@ body { background: var(--void); color: var(--ink); font-family: var(--f-body); o
   display: grid; gap: 4px; pointer-events: none; text-shadow: 0 1px 6px #000; }
 #keys { font-family: var(--f-display); font-weight: 900; font-size: 28px; letter-spacing: .06em; text-transform: uppercase; }
 #keys b { color: var(--warn); }
+#lives { font-family: var(--f-display); font-weight: 700; font-size: 20px; letter-spacing: .06em; text-transform: uppercase; }
+#lives b { color: var(--alarm); letter-spacing: .15em; }
+#maskView { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
+#maskBtn { display: none; }
 #goal { font-size: 13px; color: var(--ink-dim); max-width: 34ch; }
 #toast { position: fixed; left: 50%; bottom: calc(28px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
   font-family: var(--f-display); font-weight: 700; font-size: 26px; letter-spacing: .08em; text-transform: uppercase;
@@ -93,7 +97,10 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   font: 700 14px var(--f-body) !important; padding: 12px 18px !important; border-radius: 4px !important; opacity: 1 !important; }
 .trace-line { height: 40px; width: 100%; max-width: 420px; }
 #walkBtn { display: none; }
-@media (pointer: coarse) { #walkBtn { display: block; position: fixed; left: max(16px, env(safe-area-inset-left, 0px));
+@media (pointer: coarse) { #maskBtn { display: block; position: fixed; right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(40px + env(safe-area-inset-bottom, 0px)); width: 84px; height: 84px; border-radius: 50%; z-index: 4;
+  background: rgba(40,10,12,.7); border: 1px solid var(--alarm); color: var(--ink); font: 600 12px var(--f-body); }
+  #walkBtn { display: block; position: fixed; left: max(16px, env(safe-area-inset-left, 0px));
   bottom: calc(40px + env(safe-area-inset-bottom, 0px)); width: 84px; height: 84px; border-radius: 50%;
   background: rgba(20,30,26,.7); border: 1px solid var(--panel-line); color: var(--ink); font: 600 12px var(--f-body); }
   #help { display: none; } }
@@ -111,11 +118,14 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 
 <div id="hud">
   <div id="keys">Llaves <b id="keyCount">0</b>/3</div>
+  <div id="lives" aria-label="Vidas">Vidas <b id="lifeIcons">♥♥♥</b></div>
   <div id="goal">Encuentra las 3 llaves y llega a la puerta de SALIDA.</div>
 </div>
+<canvas id="maskView" hidden aria-hidden="true"></canvas>
 <div id="toast"></div>
-<div id="help">WASD / flechas: caminar · arrastrar o clic: mirar · Esc: soltar el ratón</div>
+<div id="help">WASD / flechas: caminar · arrastrar o clic: mirar · mantén ESPACIO: máscara · Esc: soltar el ratón</div>
 <button id="walkBtn" aria-label="Avanzar">Avanzar</button>
+<button id="maskBtn" aria-label="Máscara">Máscara</button>
 
 <aside id="monitor" aria-label="Simulador de ECG">
   <header><h2>Monitor ECG · simulado</h2><button id="collapse" aria-expanded="true">ocultar</button></header>
@@ -156,6 +166,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
     <h1>Lat<em>i</em>do</h1>
     <p>Un pasillo, tres llaves y una salida. El edificio escucha tu corazón: entre más se acelera, más oscuro se vuelve.</p>
     <p>Al empezar, quédate quieto 20 s mientras se mide tu baseline. Después explora: si tu corazón se acelera, la luz se apaga y algo viene por ti.</p>
+    <p>Tres cosas viven aquí. Si el Corredor te ve, huye de su vista. Si el Sin Rostro se acerca, ponte la máscara y no te muevas. Si escuchas algo arrastrándose detrás de ti, voltea. Tienes 3 vidas.</p>
     <div class="btns">
       <button class="big" id="playBtn">Jugar en pantalla</button>
       <span id="vrSlot"></span>
@@ -166,7 +177,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 
 <section class="screen" id="endScreen" hidden>
   <div class="card">
-    <h1>Esca<em>p</em>aste</h1>
+    <h1 id="endTitle">Esca<em>p</em>aste</h1>
     <p id="endStats"></p>
     <div class="btns"><button class="big" id="againBtn">Jugar otra vez</button></div>
   </div>
@@ -322,7 +333,7 @@ const bulbs = [[3, 1], [9, 5], [5, 9], [13, 11]].map(([c, r]) => {
 
 // the figure: too tall, black ragged robe, pale porcelain face with a torn grin, arms that reach the knees
 const figure = new THREE.Group();
-const fig = (function makeFigure() {
+function buildTall(figure) {
   const black = new THREE.MeshBasicMaterial({ color: 0x030303 });
   const robeGeo = new THREE.CylinderGeometry(0.13, 0.46, 1.75, 16, 8, true);
   const pos = robeGeo.attributes.position;           // rag the robe: wobble the folds, tear the hem
@@ -365,27 +376,28 @@ const fig = (function makeFigure() {
   torso.add(neck, headG, armL, armR);
   figure.add(robe, torso);
   return { headG, torso, armL, armR, eyes, twitchAt: 0, tilt: 0.35 };
-})();
-figure.visible = false; scene.add(figure);
-function animateFigure(dt) {
-  if (!figure.visible) return;
-  if (sim.t > fig.twitchAt) { fig.tilt = (Math.random() - 0.5) * 1.1; fig.twitchAt = sim.t + 0.15 + Math.random() * 0.9; } // jerky head snaps
-  fig.headG.rotation.z = fig.tilt; fig.headG.rotation.x = Math.sin(sim.t * 13) * 0.04;
-  fig.torso.rotation.z = Math.sin(sim.t * 1.7) * 0.05;
-  const reach = figureMode === 'charge' ? -1.35 : figureMode === 'behind' ? -0.5 : 0;   // arms come up toward you
-  for (const a of [fig.armL, fig.armR]) a.rotation.x += (reach + Math.sin(sim.t * 9 + a.position.x * 10) * 0.05 - a.rotation.x) * Math.min(1, dt * 8);
-  const hp = getHead(), dist = Math.hypot(hp.x - figure.position.x, hp.z - figure.position.z);
-  const lean = Math.max(0, Math.min(1, (2.4 - dist) / 1.2)) * 1.15;   // close up, it bends down to stare at your eyes
-  fig.torso.rotation.x += ((figureMode === 'charge' ? Math.max(0.25, lean) : lean) - fig.torso.rotation.x) * Math.min(1, dt * 10);
-  if (figureMode === 'charge') figure.position.y = Math.abs(Math.sin(sim.t * 22)) * 0.05;  // stuttering run
-  else figure.position.y = 0;
 }
+const fig = buildTall(figure);
+figure.visible = false; scene.add(figure);
+function animTall(rig, grp, mode, dt) {
+  if (!grp.visible) return;
+  if (sim.t > rig.twitchAt) { rig.tilt = (Math.random() - 0.5) * 1.1; rig.twitchAt = sim.t + (mode === 'windup' ? 0.06 : 0.15 + Math.random() * 0.9); } // jerky head snaps
+  rig.headG.rotation.z = rig.tilt; rig.headG.rotation.x = Math.sin(sim.t * 13) * 0.04;
+  rig.torso.rotation.z = Math.sin(sim.t * 1.7) * 0.05;
+  const reach = mode === 'charge' || mode === 'attack' ? -1.35 : mode === 'behind' ? -0.5 : 0;   // arms come up toward you
+  for (const a of [rig.armL, rig.armR]) a.rotation.x += (reach + Math.sin(sim.t * 9 + a.position.x * 10) * 0.05 - a.rotation.x) * Math.min(1, dt * 8);
+  const hp = getHead(), dist = Math.hypot(hp.x - grp.position.x, hp.z - grp.position.z);
+  const lean = Math.max(0, Math.min(1, (2.4 - dist) / 1.2)) * 1.15;   // close up, it bends down to stare at your eyes
+  rig.torso.rotation.x += ((mode === 'charge' ? Math.max(0.25, lean) : lean) - rig.torso.rotation.x) * Math.min(1, dt * 10);
+  grp.position.y = mode === 'charge' ? Math.abs(Math.sin(sim.t * 22)) * 0.05 : 0;  // stuttering run
+}
+function animateFigure(dt) { animTall(fig, figure, figureMode, dt); }
 let figureUntil = 0, figureMode = 'static';
 
 /* ================= PLAYER / INPUT ================= */
 let yaw = -Math.PI / 2, pitch = 0;
 dolly.position.set(cx(start[0]), 0, cz(start[1]));
-const input = { f: 0, b: 0, l: 0, r: 0, walk: 0 };
+const input = { f: 0, b: 0, l: 0, r: 0, walk: 0, mask: 0 };
 const keyMap = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r' };
 addEventListener('keydown', e => { if (keyMap[e.code]) { input[keyMap[e.code]] = 1; e.preventDefault(); } });
 addEventListener('keyup', e => { if (keyMap[e.code]) input[keyMap[e.code]] = 0; });
@@ -428,7 +440,7 @@ function vrInput(dt) {
       if (by && !btnPrev.y) { sim.spike = 0; logEvent('test_button', 'Y'); buzz(gp, 0.3, 60); }
       btnPrev.x = bx; btnPrev.y = by;
       if (Math.hypot(x, y) > 0.15) { const f = forwardXZ().clone(); const rgt = new THREE.Vector3(-f.z, 0, f.x);
-        const sp = 1.3 * dt; tryMove((f.x * -y + rgt.x * x) * sp, (f.z * -y + rgt.z * x) * sp); }
+        const sp = (masked ? 0.7 : 1.6) * dt; tryMove((f.x * -y + rgt.x * x) * sp, (f.z * -y + rgt.z * x) * sp); }
     } else if (src.handedness === 'right') {
       if (Math.abs(x) > 0.7 && snapReady) { snapReady = false; snapTurn(x > 0 ? -Math.PI / 6 : Math.PI / 6); }
       if (Math.abs(x) < 0.3) snapReady = true;
@@ -441,10 +453,11 @@ function snapTurn(a) {
 }
 
 /* ================= AUDIO (synthesized) ================= */
-let AC = null, master, droneGain, droneFilter, windGain, hbGain;
+let AC = null, maskFilter, staticGain, master, droneGain, droneFilter, windGain, hbGain;
 function initAudio() {
   if (AC) return; AC = new (window.AudioContext || window.webkitAudioContext)();
-  master = AC.createGain(); master.gain.value = 0.9; master.connect(AC.destination);
+  maskFilter = AC.createBiquadFilter(); maskFilter.type = 'lowpass'; maskFilter.frequency.value = 20000; maskFilter.connect(AC.destination);
+  master = AC.createGain(); master.gain.value = 0.9; master.connect(maskFilter);
   droneFilter = AC.createBiquadFilter(); droneFilter.type = 'lowpass'; droneFilter.frequency.value = 180;
   droneGain = AC.createGain(); droneGain.gain.value = 0.12; droneFilter.connect(droneGain); droneGain.connect(master);
   [55, 55.7, 82.4].forEach(f => { const o = AC.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(droneFilter); o.start(); });
@@ -452,6 +465,9 @@ function initAudio() {
   const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 400; bp.Q.value = 0.6;
   windGain = AC.createGain(); windGain.gain.value = 0.05; ns.connect(bp); bp.connect(windGain); windGain.connect(master); ns.start();
   hbGain = AC.createGain(); hbGain.gain.value = 0; hbGain.connect(master);
+  const st = AC.createBufferSource(); st.buffer = noiseBuffer(3); st.loop = true; const hp = AC.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3000;
+  const crackle = AC.createOscillator(), cg = AC.createGain(); crackle.type = 'square'; crackle.frequency.value = 11; cg.gain.value = 0.5; crackle.connect(cg);
+  staticGain = AC.createGain(); staticGain.gain.value = 0; cg.connect(staticGain.gain); st.connect(hp); hp.connect(staticGain); staticGain.connect(master); st.start(); crackle.start();
 }
 function noiseBuffer(sec) { const b = AC.createBuffer(1, AC.sampleRate * sec, AC.sampleRate), d = b.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; return b; }
@@ -492,6 +508,13 @@ function sfxBreath() { if (!AC) return; [0, 1.3].forEach(t => { const s = AC.cre
   const fl = AC.createBiquadFilter(); fl.type = 'bandpass'; fl.frequency.value = t ? 700 : 500; fl.Q.value = 1.2; const g = AC.createGain();
   s.connect(fl); fl.connect(g); g.connect(master); const w = AC.currentTime + t; g.gain.setValueAtTime(0.0001, w);
   g.gain.linearRampToValueAtTime(0.25, w + 0.5); g.gain.linearRampToValueAtTime(0.0001, w + 1.1); s.start(w); s.stop(w + 1.3); }); }
+function sfxScratch(vol, pan) { if (!AC) return; const d = panOut(pan); const s = AC.createBufferSource(); s.buffer = noiseBuffer(0.1);
+  const fl = AC.createBiquadFilter(); fl.type = 'highpass'; fl.frequency.value = 2500 + Math.random() * 2000; const g = AC.createGain();
+  s.connect(fl); fl.connect(g); g.connect(d); env(g, AC.currentTime, 0.002, vol, 0.05); s.start(); s.stop(AC.currentTime + 0.1); }
+function sfxShriek() { if (!AC) return; const o = AC.createOscillator(), g = AC.createGain(); o.type = 'square';
+  o.frequency.setValueAtTime(1400, AC.currentTime); o.frequency.exponentialRampToValueAtTime(2600, AC.currentTime + 0.35);
+  const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2000; bp.Q.value = 2; o.connect(bp); bp.connect(g); g.connect(master);
+  env(g, AC.currentTime, 0.01, 0.25, 0.4); o.start(); o.stop(AC.currentTime + 0.5); }
 function sfxPickup() { if (!AC) return; [660, 990].forEach((f, i) => { const o = AC.createOscillator(), g = AC.createGain(); o.type = 'triangle'; o.frequency.value = f;
   o.connect(g); g.connect(master); env(g, AC.currentTime + i * 0.09, 0.01, 0.15, 0.4); o.start(AC.currentTime + i * 0.09); o.stop(AC.currentTime + i * 0.09 + 0.5); }); }
 
@@ -638,7 +661,7 @@ function adaptStep(dt) {
   $('vignette').style.opacity = (a * 0.75 + pulse * a * 0.25).toFixed(2);
   if (AC) { droneGain.gain.setTargetAtTime(0.10 + a * 0.2, AC.currentTime, 0.5); windGain.gain.setTargetAtTime(0.04 + a * 0.07, AC.currentTime, 0.5);
     hbGain.gain.setTargetAtTime(Math.min(0.8, a * 1.1), AC.currentTime, 0.4); droneFilter.frequency.setTargetAtTime(180 + a * 380, AC.currentTime, 0.8); }
-  directorStep();
+  directorStep(); monsterDirector();
 }
 
 // ---------- scare director: real scares when fear is detected ----------
@@ -656,13 +679,13 @@ const ADAPTIVE = {
   runner: () => { sfxFootsteps(10, Math.random() < 0.5 ? -0.8 : 0.8, true); setTimeout(() => running && sfxScream(), 1500); },
 };
 const MED_POOL = ['footsteps', 'knock', 'scream', 'glimpse', 'breath'];
-const HIGH_POOL = ['charge', 'behind', 'jumpscare', 'blackout', 'runner'];
+const HIGH_POOL = ['blackout', 'runner', 'scream', 'glimpse', 'jumpscare'];
 const director = { next: 0, cool: 0, last: 0, prev: '' };
 function directorStep() {
   const s = algo.state;
   if (!running || s < 1) { director.last = Math.max(0, s); return; }
   const rising = s > director.last; director.last = s;
-  if (figure.visible || sim.t < blackoutUntil || sim.t < director.cool) return;
+  if (figure.visible || activeMonster() || sim.t < blackoutUntil || sim.t < director.cool) return;
   if (rising || sim.t > director.next) adaptiveScare(s, rising ? 'subida' : 'repeticion');
 }
 function adaptiveScare(s, why) {
@@ -675,6 +698,225 @@ function adaptiveScare(s, why) {
   if ($('autoReact').checked) setTimeout(() => heartReact(s === 2 ? 7 : 5), 500);
 }
 
+/* ================= MONSTERS ================= */
+// Monster 1  "El Corredor": if it gets line of sight on you it screams and sprints at you. Break line of sight to escape.
+// Monster 2  "El Sin Rostro": walks toward you hunting for a face. Put the mask on and hold still until it leaves.
+// Monster 3  "El Reptante": crawls up behind you. Turn around and look at it before it reaches you.
+let lives = 3, invulnUntil = 0, masked = false, maskOverride = null, hintFaceless = false;
+const monsters = [];
+function makeMonster(name, build) { const g = new THREE.Group(); g.visible = false; scene.add(g);
+  const m = { name, g, rig: build(g), state: 'off', until: 0, last: new THREE.Vector3(), nextSound: 0 }; monsters.push(m); return m; }
+const activeMonster = () => monsters.find(m => m.state !== 'off');
+
+function buildFaceless(g) {
+  const skin = new THREE.MeshStandardMaterial({ color: 0xb8b2a6, emissive: 0x1d1a15, roughness: 0.7 });
+  const black = new THREE.MeshBasicMaterial({ color: 0x020202 });
+  const legs = [-0.09, 0.09].map(x => { const l = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.03, 1.0, 6), skin); l.position.set(x, 0.5, 0); return l; });
+  const torso = new THREE.Group(); torso.position.y = 1.0;
+  const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.1, 0.62, 8), skin); chest.position.y = 0.31;
+  const ribs = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.012, 4, 12, Math.PI), black); ribs.position.set(0, 0.36, 0.06); ribs.rotation.z = Math.PI;
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.38, 6), skin); neck.position.y = 0.8;
+  const headG = new THREE.Group(); headG.position.y = 1.08;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 18, 14), skin); head.scale.set(0.9, 1.45, 1);   // smooth, eyeless egg
+  const slit = new THREE.Mesh(new THREE.PlaneGeometry(0.02, 0.2), black); slit.position.set(0, -0.02, 0.128); // vertical mouth that splits open
+  headG.add(head, slit);
+  const arm = side => { const a = new THREE.Group(); a.position.set(side * 0.17, 0.58, 0);
+    const up = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.02, 1.05, 6), skin); up.position.y = -0.52; a.add(up);
+    for (let f = 0; f < 3; f++) { const fg = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.002, 0.22, 4), skin);
+      fg.position.set((f - 1) * 0.02, -1.15, 0); fg.rotation.z = (f - 1) * 0.2; a.add(fg); } a.rotation.z = side * 0.08; return a; };
+  const armL = arm(-1), armR = arm(1);
+  torso.add(chest, ribs, neck, headG, armL, armR); g.add(...legs, torso);
+  return { headG, torso, armL, armR, slit, open: 0 };
+}
+function buildCrawler(g) {
+  const black = new THREE.MeshBasicMaterial({ color: 0x030303 });
+  const pale = new THREE.MeshStandardMaterial({ color: 0xd6d0c2, emissive: 0x2a251c, roughness: 0.55 });
+  const body = new THREE.Group(); body.position.y = 0.42; g.add(body);
+  const spine = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.16, 0.95, 8), black); spine.rotation.x = Math.PI / 2; body.add(spine);
+  const headG = new THREE.Group(); headG.position.set(0, 0.12, 0.6); body.add(headG);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 12), pale); head.scale.set(1, 1.25, 1); headG.add(head);
+  [-0.045, 0.045].forEach(x => { const e = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), black); e.scale.set(1, 1.6, 0.5); e.position.set(x, 0.04, 0.105); headG.add(e);
+    const p = new THREE.Mesh(new THREE.SphereGeometry(0.008, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff2414, fog: false })); p.position.set(x, 0.038, 0.12); headG.add(p); });
+  const mouth = new THREE.Mesh(new THREE.CircleGeometry(1, 20), black); mouth.scale.set(0.06, 0.05, 1); mouth.position.set(0, -0.06, 0.112); headG.add(mouth);
+  const limbs = [];
+  for (const [x, z] of [[-1, 1], [1, 1], [-1, -1], [1, -1]]) {      // long spider limbs: upper bone up and out, lower bone down
+    const hip = new THREE.Group(); hip.position.set(x * 0.12, 0, z * 0.35); body.add(hip);
+    const up = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.02, 0.6, 5), black); up.position.set(x * 0.25, 0.2, 0); up.rotation.z = x * -1.0; hip.add(up);
+    const knee = new THREE.Group(); knee.position.set(x * 0.5, 0.36, 0); hip.add(knee);
+    const lo = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.008, 0.85, 5), black); lo.position.set(x * 0.08, -0.38, 0); lo.rotation.z = x * 0.2; knee.add(lo);
+    limbs.push({ hip, side: x, phase: (x + z + 2) * 0.8 }); }
+  return { body, headG, limbs };
+}
+const M1 = makeMonster('corredor', buildTall), M2 = makeMonster('sin_rostro', buildFaceless), M3 = makeMonster('reptante', buildCrawler);
+
+function los(a, b) { const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz), n = Math.ceil(d / 0.2);
+  for (let i = 1; i < n; i++) { const ch = cellAt(a.x + dx * i / n, a.z + dz * i / n); if (ch === '#' || (ch === 'D' && !doorOpen)) return false; }
+  return true; }
+function moveToward(m, tx, tz, speed, dt) { const p = m.g.position, dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
+  if (d < 0.01) return d; const st = Math.min(d, speed * dt), nx = p.x + dx / d * st, nz = p.z + dz / d * st;
+  if (!blocked(nx, p.z, 0.25)) p.x = nx; if (!blocked(p.x, nz, 0.25)) p.z = nz; return d; }
+function faceHead(m) { const h = getHead(); m.g.lookAt(h.x, m.g.position.y, h.z); }
+function freeCells() { const out = []; MAP.forEach((row, r) => [...row].forEach((ch, c) => { if (ch !== '#' && ch !== 'D' && ch !== 'E') out.push([cx(c), cz(r)]); })); return out; }
+const FREE = freeCells();
+function lookingAt(p, cosMin) { const h = getHead(), f = forwardXZ(), dx = p.x - h.x, dz = p.z - h.z, d = Math.hypot(dx, dz) || 1;
+  return (dx * f.x + dz * f.z) / d > cosMin && los(h, p); }
+
+function spawnMonster(m) {
+  const h = getHead(), a = arousal;
+  if (m === M1) {   // prefer a spot down a corridor you can see; otherwise lurk out of sight
+    const seen = FREE.filter(([x, z]) => { const d = Math.hypot(x - h.x, z - h.z); return d > 7 && d < 13 && los(h, { x, z }); });
+    const hidden = FREE.filter(([x, z]) => { const d = Math.hypot(x - h.x, z - h.z); return d > 6 && d < 12 && !los(h, { x, z }); });
+    const pool = seen.length ? seen : hidden; if (!pool.length) return false;
+    const [x, z] = pool[Math.floor(Math.random() * pool.length)]; m.g.position.set(x, 0, z); m.state = 'lurk'; m.until = sim.t + 25;
+  } else if (m === M2) {
+    const { f, d } = freeAhead(); const k = Math.min(6, d); if (k < 2.6) return false;
+    m.g.position.set(h.x + f.x * k, 0, h.z + f.z * k); m.state = 'approach'; m.until = sim.t + 22; m.rig.open = 0;
+    flickerUntil = sim.t + 1.5;
+    if (!hintFaceless) { hintFaceless = true; toast(renderer.xr.isPresenting ? '¡Lleva tu mano a la cara: máscara!' : '¡Mantén ESPACIO: ponte la máscara!', 3.5); }
+  } else {
+    const f = forwardXZ().clone(); let ok = false;
+    for (const d of [4.5, 3.5, 2.6]) { const x = h.x - f.x * d, z = h.z - f.z * d; if (!blocked(x, z, 0.3) && los(h, { x, z })) { m.g.position.set(x, 0, z); ok = true; break; } }
+    if (!ok) return false;
+    const window = 5 - 1.5 * a; m.state = 'crawl'; m.until = sim.t + window;
+    m.speed = Math.hypot(m.g.position.x - h.x, m.g.position.z - h.z) / window;
+  }
+  m.g.visible = true; faceHead(m); logEvent('monster_spawn', m.name);
+  if ($('autoReact').checked) setTimeout(() => heartReact(6), 600);
+  return true;
+}
+function despawn(m, why) { if (m.state === 'off') return; m.state = 'off'; m.g.visible = false; logEvent('monster_end', m.name + ':' + why);
+  if (staticGain && m === M2) staticGain.gain.setTargetAtTime(0, AC.currentTime, 0.2); scheduleNextMonster(); }
+
+function attack(m) {
+  if (!running) return;
+  const h = getHead(), f = forwardXZ().clone();
+  m.g.position.set(h.x + f.x * 0.75, 0, h.z + f.z * 0.75); m.g.visible = true; faceHead(m);
+  m.state = 'attack'; m.until = sim.t + 1.1;
+  sfxStinger(); sfxScream(); flashRed(0.85); buzzAll(1, 450);
+  if (sim.t < invulnUntil) return;
+  lives--; invulnUntil = sim.t + 6; renderLives(); logEvent('attack', m.name);
+  if ($('autoReact').checked) heartReact(20);
+  if (lives <= 0) setTimeout(() => gameOver(m), 1200); else toast('Te atrapó. Vidas: ' + lives, 2.5);
+}
+function renderLives() { $('lifeIcons').textContent = '♥'.repeat(Math.max(0, lives)) + '♡'.repeat(3 - Math.max(0, lives)); }
+
+function updateMonsters(dt) {
+  const h = getHead(), a = arousal;
+  // --- 1. El Corredor ---
+  const m1 = M1;
+  if (m1.state !== 'off') {
+    const d = Math.hypot(h.x - m1.g.position.x, h.z - m1.g.position.z), see = los(m1.g.position, h) && d < 14;
+    if (m1.state === 'lurk') { if (see) { m1.state = 'windup'; m1.until = sim.t + 1.1 + 0.6 * (1 - a); faceHead(m1); sfxScream(); logEvent('monster', 'corredor_te_vio'); if ($('autoReact').checked) heartReact(12); }
+      else if (sim.t > m1.until) despawn(m1, 'aburrido'); }
+    else if (m1.state === 'windup') { faceHead(m1); if (sim.t > m1.until) m1.state = 'chase'; }
+    else if (m1.state === 'chase') {
+      const sp = 2.2 + 1.4 * a;
+      if (see) { m1.last.copy(h); moveToward(m1, h.x, h.z, sp, dt); faceHead(m1); }
+      else { m1.state = 'search'; m1.until = sim.t + 2.5; }
+      if (sim.t > m1.nextSound) { m1.nextSound = sim.t + 0.24; if (AC) stepSound(AC.currentTime, Math.min(1, 2 / d), master, 260); }
+      if (d < 0.95) attack(m1);
+    } else if (m1.state === 'search') {
+      moveToward(m1, m1.last.x, m1.last.z, 1.0, dt);
+      if (see && sim.t > m1.until - 1.5) m1.state = 'chase'; else if (sim.t > m1.until) despawn(m1, 'escapaste');
+    } else if (m1.state === 'attack' && sim.t > m1.until) despawn(m1, 'ataque');
+    animTall(m1.rig, m1.g, { chase: 'charge', search: 'static', lurk: 'static', windup: 'windup', attack: 'attack' }[m1.state] || 'static', dt);
+  }
+  // --- 2. El Sin Rostro ---
+  const m2 = M2;
+  if (m2.state !== 'off') {
+    const d = Math.hypot(h.x - m2.g.position.x, h.z - m2.g.position.z);
+    if (staticGain) staticGain.gain.setTargetAtTime(m2.state === 'attack' ? 0 : Math.max(0, Math.min(0.35, 0.9 / Math.max(0.6, d))), AC.currentTime, 0.1);
+    if (m2.state === 'approach') {
+      moveToward(m2, h.x, h.z, 0.6 + 0.5 * a, dt); faceHead(m2);
+      if (d < 2.1) { if (masked) { m2.state = 'inspect'; m2.until = sim.t + 3.4; logEvent('monster', 'sin_rostro_inspecciona'); } else attack(m2); }
+      else if (sim.t > m2.until) despawn(m2, 'se_fue');
+    } else if (m2.state === 'inspect') {
+      if (d > 0.8) moveToward(m2, h.x, h.z, 0.7, dt); faceHead(m2);
+      m2.rig.open = Math.min(1, m2.rig.open + dt * 0.5);
+      if (!masked) attack(m2); else if (sim.t > m2.until) { m2.state = 'leave'; m2.until = sim.t + 1.4; logEvent('monster', 'sin_rostro_engañado'); }
+    } else if (m2.state === 'leave') {
+      const p = m2.g.position; moveToward(m2, p.x + (p.x - h.x), p.z + (p.z - h.z), 1.2, dt); m2.rig.open = Math.max(0, m2.rig.open - dt);
+      if (sim.t > m2.until) despawn(m2, 'engañado');
+    } else if (m2.state === 'attack') { m2.rig.open = 1; if (sim.t > m2.until) despawn(m2, 'ataque'); }
+    const r = m2.rig; r.headG.rotation.z = Math.sin(sim.t * 0.9) * 0.35 + (m2.state === 'inspect' ? Math.sin(sim.t * 17) * 0.06 : 0);
+    r.slit.scale.x = 1 + r.open * 4; r.slit.scale.y = 1 + r.open * 0.4;
+    const lean = Math.max(0, Math.min(1, (2.0 - d) / 1.2)) * 0.9; r.torso.rotation.x += (lean - r.torso.rotation.x) * Math.min(1, dt * 6);
+    for (const arm of [r.armL, r.armR]) arm.rotation.x += ((m2.state === 'attack' ? -1.3 : -0.2 - 0.3 * r.open) - arm.rotation.x) * Math.min(1, dt * 6);
+  }
+  // --- 3. El Reptante ---
+  const m3 = M3;
+  if (m3.state !== 'off') {
+    const d = Math.hypot(h.x - m3.g.position.x, h.z - m3.g.position.z);
+    if (m3.state === 'crawl') {
+      moveToward(m3, h.x, h.z, m3.speed, dt); faceHead(m3);
+      if (sim.t > m3.nextSound) { m3.nextSound = sim.t + 0.18 + Math.random() * 0.1; sfxScratch(Math.min(0.9, 0.9 / Math.max(0.8, d)), Math.random() * 0.6 - 0.3); }
+      if (lookingAt(m3.g.position, 0.8) && d < 7) { m3.state = 'flee'; m3.until = sim.t + 0.9; sfxShriek(); logEvent('monster', 'reptante_visto'); }
+      else if (d < 0.9 || sim.t > m3.until) attack(m3);
+    } else if (m3.state === 'flee') {
+      const p = m3.g.position; moveToward(m3, p.x + (p.x - h.x) * 3, p.z + (p.z - h.z) * 3, 6, dt);
+      if (sim.t > m3.until) despawn(m3, 'visto');
+    } else if (m3.state === 'attack' && sim.t > m3.until) despawn(m3, 'ataque');
+    const r = m3.rig, rear = m3.state === 'attack' ? 1 : 0;   // on attack it rears up to your face
+    r.body.rotation.x += (-1.1 * rear - r.body.rotation.x) * Math.min(1, dt * 10); r.body.position.y = 0.42 + rear * 0.75;
+    const speedAnim = m3.state === 'flee' ? 30 : 14;
+    r.limbs.forEach(l => { l.hip.rotation.y = Math.sin(sim.t * speedAnim + l.phase) * 0.45 * l.side; l.hip.rotation.x = Math.max(0, Math.sin(sim.t * speedAnim + l.phase)) * 0.3; });
+    r.headG.rotation.z = Math.sin(sim.t * 7) * 0.5; r.body.position.x = 0;
+  }
+}
+
+const mdir = { next: Infinity, prev: null };
+function scheduleNextMonster() { const s = Math.max(0, algo.state); mdir.next = sim.t + [45, 22, 11][s] * (0.8 + Math.random() * 0.4); }
+function monsterDirector() {
+  if (!running || !algo.baseline || activeMonster() || figure.visible) return;
+  if (!isFinite(mdir.next)) { mdir.next = sim.t + 12; return; }       // grace period after the baseline
+  const s = Math.max(0, algo.state);
+  if (mdir.next - sim.t > [45, 22, 11][s] * 1.2) mdir.next = sim.t + [45, 22, 11][s] * (0.8 + Math.random() * 0.4); // heart rose: come sooner
+  if (sim.t < mdir.next || sim.t < invulnUntil) return;
+  const order = [M1, M2, M3].filter(m => m !== mdir.prev).sort(() => Math.random() - 0.5);
+  for (const m of order) if (spawnMonster(m)) { mdir.prev = m; return; }
+  mdir.next = sim.t + 3;      // nowhere to spawn right now; try again shortly
+}
+
+// ---------- mask ----------
+const maskCv = $('maskView'), vrMaskCv = document.createElement('canvas'); vrMaskCv.width = vrMaskCv.height = 1024;
+function paintMask(cv, holes) { const g = cv.getContext('2d'), w = cv.width, hh = cv.height;
+  g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, w, hh);
+  const gr = g.createRadialGradient(w / 2, hh / 2, w * 0.1, w / 2, hh / 2, w * 0.8); gr.addColorStop(0, '#2b241c'); gr.addColorStop(1, '#0c0907');
+  g.fillStyle = gr; g.fillRect(0, 0, w, hh);
+  g.globalCompositeOperation = 'destination-out';
+  for (const [x, y, rx, ry] of holes) { g.filter = 'blur(' + Math.round(rx * 0.12) + 'px)'; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.fill(); }
+  g.filter = 'none'; g.globalCompositeOperation = 'source-over'; }
+function paintScreenMask() { maskCv.width = innerWidth; maskCv.height = innerHeight; const w = innerWidth, hh = innerHeight, r = Math.min(w, hh);
+  paintMask(maskCv, [[w * 0.5 - r * 0.2, hh * 0.47, r * 0.13, r * 0.09], [w * 0.5 + r * 0.2, hh * 0.47, r * 0.13, r * 0.09]]); }
+paintScreenMask(); addEventListener('resize', paintScreenMask);
+paintMask(vrMaskCv, [[512 - 110, 500, 85, 62], [512 + 110, 500, 85, 62]]);
+const vrMaskTex = new THREE.CanvasTexture(vrMaskCv); vrMaskTex.colorSpace = THREE.SRGBColorSpace;
+const vrMask = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), new THREE.MeshBasicMaterial({ map: vrMaskTex, transparent: true, depthTest: false, depthWrite: false, fog: false }));
+vrMask.position.set(0, 0, -0.105); vrMask.renderOrder = 999; vrMask.visible = false; camera.add(vrMask);
+addEventListener('keydown', e => { if (e.code === 'Space') { input.mask = 1; e.preventDefault(); } });
+addEventListener('keyup', e => { if (e.code === 'Space') input.mask = 0; });
+const maskBtn = $('maskBtn'); maskBtn.addEventListener('pointerdown', e => { e.stopPropagation(); input.mask = 1; });
+maskBtn.addEventListener('pointerup', () => { input.mask = 0; }); maskBtn.addEventListener('pointerleave', () => { input.mask = 0; });
+const ctrls = [0, 1].map(i => renderer.xr.getController(i)), ctrlPos = new THREE.Vector3();
+function handNearFace() { const h = getHead(); return ctrls.some(c => { if (!c.visible && !c.parent) return false; c.getWorldPosition(ctrlPos);
+  return ctrlPos.lengthSq() > 0 && ctrlPos.distanceTo(h) < 0.23; }); }
+let maskBreath = 0;
+function updateMask() {
+  const want = maskOverride !== null ? maskOverride : (renderer.xr.isPresenting ? handNearFace() : !!input.mask);
+  if (want !== masked) { masked = want; logEvent(masked ? 'mask_on' : 'mask_off');
+    if (AC) maskFilter.frequency.setTargetAtTime(masked ? 700 : 20000, AC.currentTime, 0.05); }
+  maskCv.hidden = !masked || renderer.xr.isPresenting; vrMask.visible = masked && renderer.xr.isPresenting;
+  if (masked && sim.t > maskBreath) { maskBreath = sim.t + 2.6; sfxBreath(); }
+}
+function buzzAll(v, ms) { const sess = renderer.xr.getSession(); if (!sess) return; for (const src of sess.inputSources) if (src.gamepad) buzz(src.gamepad, v, ms); }
+
+function gameOver(m) { if (!running) return; running = false; logEvent('game_over', m.name);
+  const s = renderer.xr.getSession(); if (s) s.end(); if (document.pointerLockElement) document.exitPointerLock();
+  $('endTitle').innerHTML = 'Te atra<em>p</em>aron';
+  const atk = events.filter(e => e.type === 'attack').map(e => e.detail);
+  $('endStats').textContent = `Tiempo: ${(sim.t - startedAt).toFixed(0)} s · Llaves: ${keysTaken}/3 · Ataques: ${atk.join(', ')} · Eventos registrados: ${events.length}.`;
+  $('againBtn').textContent = 'Intentar de nuevo'; $('endScreen').hidden = false; }
+
 /* ================= MAIN LOOP ================= */
 let running = false, last = performance.now(), startedAt = 0, keysTaken = 0;
 function update(dt) {
@@ -683,7 +925,7 @@ function update(dt) {
   if (!renderer.xr.isPresenting) {
     camera.rotation.set(pitch, yaw, 0);
     const fwd = input.f + input.walk - input.b, str = input.r - input.l;
-    if (fwd || str) { const sp = 2.0 * dt, sY = Math.sin(yaw), cY = Math.cos(yaw);
+    if (fwd || str) { const sp = (masked ? 0.9 : 2.0) * dt, sY = Math.sin(yaw), cY = Math.cos(yaw);
       tryMove((-sY * fwd + cY * str) * sp, (-cY * fwd - sY * str) * sp); }
   } else vrInput(dt);
   const h = getHead();
@@ -699,7 +941,7 @@ function update(dt) {
   for (const tr of triggers) if (!tr.fired && tr.c === c && tr.r === r) fireScare(tr);
   // exit
   if (doorOpen && c === exitCell[0] && r === exitCell[1]) finish();
-  figureStep(dt); animateFigure(dt); drawWrist();
+  figureStep(dt); animateFigure(dt); updateMask(); updateMonsters(dt); drawWrist();
   adaptStep(dt);
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').style.opacity = 0; }
 }
@@ -733,8 +975,9 @@ function drawWrist() {
   g.fillStyle = ['#39ff88', '#ffb020', '#ff3344'][Math.max(0, st)]; g.font = '600 44px monospace'; g.fillText(label, 300, 100);
   g.fillStyle = '#d9e2de'; g.font = '30px monospace';
   g.fillText(algo.collecting ? 'Quédate quieto…' : algo.baseline ? 'ΔFC ' + (algo.dRel >= 0 ? '+' : '') + Math.round(algo.dRel * 100) + ' %' : '', 24, 170);
-  g.fillText('Llaves ' + keysTaken + '/3', 300, 170);
-  g.fillStyle = '#7d8b86'; g.font = '26px monospace'; g.fillText('X: simular susto   Y: calmar', 24, 228);
+  g.fillText('Llaves ' + keysTaken + '/3', 300, 150); g.fillStyle = '#ff3344'; g.fillText('♥'.repeat(Math.max(0, lives)) + '♡'.repeat(3 - Math.max(0, lives)), 300, 192);
+  if (M2.state === 'approach' || M2.state === 'inspect') { g.fillStyle = '#ff3344'; g.font = '600 30px monospace'; g.fillText(masked ? 'MÁSCARA PUESTA: NO TE MUEVAS' : '¡MANO A LA CARA: MÁSCARA!', 24, 228); }
+  else { g.fillStyle = '#7d8b86'; g.font = '26px monospace'; g.fillText('X: simular susto   Y: calmar', 24, 228); }
   wristTex.needsUpdate = true;
 }
 
@@ -748,11 +991,11 @@ function drawWrist() {
   btn.addEventListener('click', () => { initAudio(); if (AC.state === 'suspended') AC.resume(); });
   renderer.xr.addEventListener('sessionstart', () => { if (!running) { $('startScreen').hidden = true; running = true; startedAt = sim.t; logEvent('game_start', 'vr'); autoBaseline(); }
     camera.rotation.set(0, 0, 0); dolly.rotation.y = yaw; });
-  note.textContent = 'VR: stick izquierdo camina, stick derecho gira, X simula un susto, Y te calma. Mira tu muñeca izquierda para ver tu frecuencia. Juega sentado.';
+  note.textContent = 'VR: stick izquierdo camina, stick derecho gira, mano a la cara = máscara, X simula un susto, Y te calma. Mira tu muñeca izquierda para ver tu frecuencia. Juega sentado.';
 })();
 
 if (innerWidth < 640) $('collapse').click();
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-window.__latido = { get arousal() { return arousal; }, flashlight, figure, get figureMode() { return figureMode; }, ADAPTIVE, sim, algo, events, keys, triggers, dolly, tick: (sec, step = 0.02) => { for (let t = 0; t < sec; t += step) update(step); }, setYaw: v => { yaw = v; }, teleport: (c, r) => { dolly.position.set(cx(c), 0, cz(r)); } };
+window.__latido = { M1, M2, M3, spawn: m => spawnMonster(m), setMask: v => { maskOverride = v; }, get lives() { return lives; }, get arousal() { return arousal; }, flashlight, figure, get figureMode() { return figureMode; }, ADAPTIVE, sim, algo, events, keys, triggers, dolly, tick: (sec, step = 0.02) => { for (let t = 0; t < sec; t += step) update(step); }, setYaw: v => { yaw = v; }, teleport: (c, r) => { dolly.position.set(cx(c), 0, cz(r)); } };
 </script>
 </body></html>
