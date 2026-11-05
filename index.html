@@ -98,6 +98,13 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   font: 700 14px var(--f-body) !important; padding: 12px 18px !important; border-radius: 4px !important; opacity: 1 !important; }
 .trace-line { height: 40px; width: 100%; max-width: 420px; }
 #walkBtn { display: none; }
+#slats { position: fixed; inset: 0; pointer-events: none; z-index: 3;
+  background: radial-gradient(ellipse 60% 45% at center, transparent 30%, #000 80%), repeating-linear-gradient(to bottom, #050403 0 30px, transparent 30px 40px); }
+#hint { position: fixed; left: 50%; top: 58%; transform: translateX(-50%); font: 600 14px var(--f-mono); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink); background: rgba(5,5,6,.6); padding: 6px 12px; border-radius: 3px; pointer-events: none; }
+#hideBtn { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(40px + env(safe-area-inset-bottom, 0px)); width: 96px; height: 96px; border-radius: 50%; z-index: 4;
+  background: rgba(40,10,12,.75); border: 1px solid var(--alarm); color: var(--ink); font: 600 12px var(--f-body); cursor: pointer; }
+@media (pointer: fine) { #hideBtn { display: none; } }
 @media (pointer: coarse) {
   #walkBtn { display: block; position: fixed; left: max(16px, env(safe-area-inset-left, 0px));
   bottom: calc(40px + env(safe-area-inset-bottom, 0px)); width: 84px; height: 84px; border-radius: 50%;
@@ -116,12 +123,15 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 <div id="flash"></div>
 
 <div id="hud">
-  <div id="keys">Llaves <b id="keyCount">0</b>/3</div>
-  <div id="goal">Encuentra las 3 llaves y llega a la puerta de SALIDA.</div>
+  <div id="keys">Llave <b id="keyCount">0</b>/1</div>
+  <div id="goal">Encuentra la llave y llega a la puerta de SALIDA. Si te persiguen, escóndete en un casillero.</div>
 </div>
+<div id="slats" hidden aria-hidden="true"></div>
 <div id="toast"></div>
-<div id="help">WASD / flechas: caminar · arrastrar o clic: mirar · Esc: soltar el ratón · usa audífonos</div>
+<div id="hint" hidden></div>
+<div id="help">WASD / flechas: caminar · arrastrar o clic: mirar · E: esconderte en un casillero · Esc: soltar el ratón · usa audífonos</div>
 <button id="walkBtn" aria-label="Avanzar">Avanzar</button>
+<button id="hideBtn" hidden>Esconderse</button>
 
 <aside id="monitor" aria-label="Simulador de ECG">
   <header><h2>Monitor ECG · simulado</h2><button id="collapse" aria-expanded="true">ocultar</button></header>
@@ -161,12 +171,11 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   <div class="card">
     <canvas class="trace-line" id="titleTrace" width="840" height="80" aria-hidden="true"></canvas>
     <h1>Lat<em>i</em>do</h1>
-    <p>Tres llaves y una salida. El edificio escucha tu corazón: entre más se acelera, más se apaga la luz, más se mueven las cosas y más cerca están ellos.</p>
+    <p>Una llave y una salida. El edificio escucha tu corazón: entre más se acelera, más se apaga la luz y más cerca están ellos.</p>
     <ul class="rules">
-      <li>Si escuchas a alguien respirar detrás de ti, voltea.</li>
-      <li>Si algo se arrastra por el techo, míralo antes de que esté encima de ti.</li>
-      <li>Si se acerca cada vez que la luz falla, deja de mirarlo.</li>
-      <li>Los maniquíes no se mueven. Nunca. Mientras los mires.</li>
+      <li>Mira al techo. Siempre. Algo vive ahí arriba.</li>
+      <li>Si ves a una mujer de negro quieta, no te acerques.</li>
+      <li>Si escuchas pasos pesados y respiración, no dejes que te vea. Corre o escóndete en un casillero.</li>
     </ul>
     <p>Al empezar, quédate quieto 20 s mientras se mide tu baseline. Usa audífonos.</p>
     <div class="btns">
@@ -201,19 +210,17 @@ const $ = id => document.getElementById(id);
 
 /* ================= MAP ================= */
 const MAP = [
-"#################",
-"#S....#.....#...#",
-"###.#.#.###.#.#K#",
-"#...#...#1#...#.#",
-"#.#######.#####.#",
-"#.#K....#.....2.#",
-"#.#####.#.#####.#",
-"#.......#.#...#.#",
-"#####.###.#.#.#.#",
-"#...#.3...#.#K#.#",
-"#.#.#####.#.###4#",
-"#ED.5.....#.....#",
-"#################"];
+"#############",
+"#S...#...#.L#",
+"###.##.#.#..#",
+"#L..1..#....#",
+"#.###.####.##",
+"#...#..2.#.L#",
+"#.#.####.##.#",
+"#.#...K#...3#",
+"#.###.##.##.#",
+"#ED.5.4.....#",
+"#############"];
 const CELL = 2.2, WALL_H = 3.0, ROWS = MAP.length, COLS = MAP[0].length;
 const cx = c => (c + 0.5) * CELL, cz = r => (r + 0.5) * CELL;
 const sealed = new Set();                       // cells temporarily closed by a falling shutter
@@ -306,7 +313,7 @@ keys.forEach(k => { const g = new THREE.Group();
   const bit = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.03, 0.03), keyMat); bit.position.set(0.04, -0.3, 0);
   const halo = glowSprite('rgba(255,190,80,0.9)'); halo.scale.set(0.9, 0.9, 1);
   g.add(ring, shaft, bit, halo); g.position.set(cx(k.c), 1.1, cz(k.r)); scene.add(g); k.obj = g; k.taken = false; });
-const bulbs = [[3, 1], [9, 5], [5, 9], [13, 11]].map(([c, r]) => {
+const bulbs = [[3, 1], [10, 3], [2, 5], [8, 9]].map(([c, r]) => {
   const l = new THREE.PointLight(0xffc98a, 4, 7, 2); l.position.set(cx(c), WALL_H - 0.3, cz(r)); scene.add(l);
   const b = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffd7a0 })); b.position.copy(l.position); scene.add(b);
   return { l, b, base: 4 }; });
@@ -386,64 +393,87 @@ function buildArm(side, skin, sleeve) { // long jointed arm with 5 three-joint f
   return { shoulder, elbow, wrist, fingers };
 }
 
-/* --- El Sonriente: 2.3 m, torn shroud, cracked porcelain skin, wet black hair, an ear-to-ear grin of needle teeth --- */
-function buildSonriente(root) {
-  const prof = []; for (let i = 0; i <= 26; i++) { const t = i / 26; prof.push(new THREE.Vector2(0.11 + 0.47 * Math.pow(1 - t, 1.6) + 0.025 * Math.sin(t * 11), t * 1.74)); }
+/* --- La Señora de negro: a tall woman in a torn black dress, long wet black hair over a calm porcelain face with closed eyes.
+       During the screamer that face tears open: black sockets with red pupils, cracked veined skin, an ear-to-ear grin of needle teeth. --- */
+MAT.faceCalm = (() => { const cv = skinCanvas('#a39889', 5, 0, 'rgba(140,95,90,.2)'); return new THREE.MeshStandardMaterial({ map: texFrom(cv), roughness: 0.5, emissive: 0x0c0a08 }); })();
+MAT.faceHorror = (() => { const cv = skinCanvas('#8e8172', 46, 34, 'rgba(70,15,25,.5)'); return new THREE.MeshStandardMaterial({ map: texFrom(cv), bumpMap: texFrom(cv, 1, 1, false), bumpScale: 0.006, roughness: 0.5, emissive: 0x150b09 }); })();
+MAT.brow = new THREE.MeshStandardMaterial({ color: 0x2a1f1b, roughness: 0.9 });
+function buildDama(root) {
+  const prof = []; for (let i = 0; i <= 26; i++) { const t = i / 26; prof.push(new THREE.Vector2(0.11 + 0.44 * Math.pow(1 - t, 1.7) + 0.02 * Math.sin(t * 11), t * 1.74)); }
   const geo = new THREE.LatheGeometry(prof, 30); const p = geo.attributes.position;
   for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), a = Math.atan2(x, z), k = 1 - y / 1.74;
-    const f = 1 + 0.11 * Math.sin(a * 9 + y * 3) * k + rand(-0.03, 0.03) * k; p.setX(i, x * f); p.setZ(i, z * f);
-    if (y < 0.02) p.setY(i, Math.random() < 0.5 ? rand(0.05, 0.32) : 0); }
+    const f = 1 + 0.1 * Math.sin(a * 9 + y * 3) * k + rand(-0.03, 0.03) * k; p.setX(i, x * f); p.setZ(i, z * f);
+    if (y < 0.02) p.setY(i, Math.random() < 0.5 ? rand(0.04, 0.28) : 0); }
   geo.computeVertexNormals();
-  const shroud = new THREE.Mesh(geo, MAT.cloth);
-  const base = Float32Array.from(p.array);
+  const dress = new THREE.Mesh(geo, MAT.cloth), base = Float32Array.from(p.array);
   const torso = new THREE.Group(); torso.position.y = 1.7;
-  const neck = bone(new V3(0, 0, 0), new V3(0, 0.36, 0.02), 0.05, 0.034, MAT.skin);
-  const tendons = [-1, 1].map(s => bone(new V3(s * 0.03, 0.02, 0.025), new V3(s * 0.012, 0.34, 0.03), 0.009, 0.006, MAT.skin, 5));
-  const headG = new THREE.Group(); headG.position.set(0, 0.47, 0.02);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(1, 36, 28), MAT.skin); head.scale.set(0.138, 0.207, 0.15);
-  const cheek = [-1, 1].map(s => { const c = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), MAT.skin); c.scale.set(0.035, 0.02, 0.03); c.position.set(s * 0.085, 0.0, 0.11); return c; });
-  const grin = buildGrin({});
-  const glows = buildEyes(headG, [-0.05, 0.05], 0.055, 0.125, 0.034);
-  const scalp = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.55), MAT.hair); scalp.scale.set(0.146, 0.215, 0.158); scalp.rotation.x = -0.38; scalp.position.y = 0.012;
+  const neck = bone(new V3(0, 0, 0), new V3(0, 0.34, 0.02), 0.046, 0.032, MAT.faceCalm);
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.13, 0.16, 18, 1, true), MAT.cloth); collar.position.y = 0.05;
+  const headG = new THREE.Group(); headG.position.set(0, 0.45, 0.02);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(1, 36, 28), MAT.faceCalm); head.scale.set(0.132, 0.2, 0.145);
+  const zS = (x, y) => 0.145 * Math.sqrt(Math.max(0.0009, 1 - (x / 0.132) ** 2 - (y / 0.2) ** 2));
+  // calm face: closed eyelids, thin brows, a small nose, closed lips
+  const calmG = new THREE.Group();
+  [-0.047, 0.047].forEach(x => {
+    const lid = new THREE.Mesh(new THREE.TorusGeometry(0.022, 0.0024, 4, 14, Math.PI), MAT.lip); lid.scale.y = 0.4; lid.position.set(x, 0.045, zS(x, 0.045) + 0.001); calmG.add(lid);
+    const shade = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), new THREE.MeshStandardMaterial({ color: 0x6d5f55, roughness: 0.6, transparent: true, opacity: 0.55 }));
+    shade.scale.set(0.026, 0.014, 0.006); shade.position.set(x, 0.05, zS(x, 0.05) - 0.002); calmG.add(shade);
+    const brow = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.0022, 4, 14, Math.PI * 0.8), MAT.brow); brow.scale.y = 0.3; brow.rotation.z = Math.PI * 0.1 * (x > 0 ? -1 : 1) + Math.PI * 0.1;
+    brow.position.set(x, 0.085, zS(x, 0.085) + 0.001); calmG.add(brow); });
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 10), MAT.faceCalm); nose.scale.set(0.013, 0.032, 0.018); nose.position.set(0, -0.012, zS(0, -0.012) - 0.004); calmG.add(nose);
+  const lipU = new THREE.Mesh(new THREE.TorusGeometry(0.026, 0.0045, 5, 18, Math.PI * 0.9), MAT.lip); lipU.scale.y = 0.22; lipU.rotation.z = Math.PI * 1.05; lipU.position.set(0, -0.078, zS(0, -0.078)); calmG.add(lipU);
+  // horror face: hidden until the screamer
+  const horrorG = new THREE.Group(); horrorG.visible = false;
+  const grin = buildGrin({ rx: 0.132, ry: 0.2, rz: 0.145, w: 0.124, open: 0.03 }); horrorG.add(grin);
+  const glows = buildEyes(horrorG, [-0.048, 0.048], 0.05, 0.12, 0.034);
+  const scalp = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.55), MAT.hair); scalp.scale.set(0.14, 0.208, 0.153); scalp.rotation.x = -0.38; scalp.position.y = 0.012;
   const curves = [];
-  for (let i = 0; i < 52; i++) { const th = rand(-Math.PI, Math.PI), front = Math.abs(th) < 0.75; if (front && Math.random() < 0.7) continue;
-    const el = rand(0.15, 1.1), sx = 0.142 * Math.sin(th) * Math.cos(el), sy = 0.2 * Math.sin(el) * 0.9 + 0.03, sz = 0.152 * Math.cos(th) * Math.cos(el);
-    const L = rand(0.75, 1.15), drift = rand(-0.06, 0.06);
+  for (let i = 0; i < 70; i++) { const th = rand(-Math.PI, Math.PI), front = Math.abs(th) < 0.75; if (front && Math.random() < 0.75) continue;
+    const el = rand(0.15, 1.1), sx = 0.137 * Math.sin(th) * Math.cos(el), sy = 0.19 * Math.sin(el) * 0.9 + 0.03, sz = 0.148 * Math.cos(th) * Math.cos(el);
+    const L = rand(0.85, 1.25), drift = rand(-0.06, 0.06);
     curves.push(new THREE.CatmullRomCurve3([new V3(sx, sy, sz), new V3(sx * 1.25, sy - 0.12, sz * 1.25 + (front ? 0.03 : 0)),
       new V3(sx * 1.3 + drift, -0.3, sz * 1.3 + (front ? 0.05 : -0.02)), new V3(sx * 1.35 + drift * 2, -L, sz * 1.2 + rand(-0.05, 0.05))])); }
-  for (const x of [-0.055, 0.04]) curves.push(new THREE.CatmullRomCurve3([new V3(x * 0.6, 0.19, 0.08), new V3(x, 0.1, 0.165), new V3(x * 1.2, -0.05, 0.19), new V3(x * 1.4, -0.4, 0.14)])); // strands across the face
-  const hair = new THREE.Group(); hair.add(hairMesh(curves, 0.0042, MAT.hair));
-  headG.add(head, ...cheek, grin, scalp, hair);
-  const armL = buildArm(-1, MAT.skin, false), armR = buildArm(1, MAT.skin, false);
-  torso.add(neck, ...tendons, headG, armL.shoulder, armR.shoulder);
-  root.add(shroud, torso);
-  return { kind: 'S', torso, headG, hair, arms: [armL, armR], cloth: { geo, base }, glows, twitchAt: 0, tilt: 0.3, curl: 0.4 };
+  for (const x of [-0.07, -0.04, 0.05, 0.075]) curves.push(new THREE.CatmullRomCurve3([new V3(x * 0.5, 0.19, 0.08), new V3(x, 0.1, 0.16), new V3(x * 1.1, -0.06, 0.18), new V3(x * 1.3, -0.45, 0.13)])); // a veil of strands over the face
+  const hair = new THREE.Group(); hair.add(hairMesh(curves, 0.0038, MAT.hair));
+  headG.add(head, calmG, horrorG, scalp, hair);
+  const armL = buildArm(-1, MAT.faceCalm, false), armR = buildArm(1, MAT.faceCalm, false);
+  armL.shoulder.scale.setScalar(0.9); armR.shoulder.scale.setScalar(0.9);
+  for (const a of [armL, armR]) {      // long black sleeves: only her hands are bare
+    const up = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.068, 0.6, 12, 3, true), MAT.cloth); up.position.y = -0.27; a.shoulder.add(up);
+    const lo = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.075, 0.52, 12, 3, true), MAT.cloth); lo.position.y = -0.27;
+    const lp = lo.geometry.attributes.position; for (let i = 0; i < lp.count; i++) if (lp.getY(i) < -0.2) lp.setY(i, lp.getY(i) - Math.random() * 0.07); a.elbow.add(lo); }
+  torso.add(neck, collar, headG, armL.shoulder, armR.shoulder);
+  root.add(dress, torso);
+  return { torso, headG, head, calmG, horrorG, grin, hair, arms: [armL, armR], cloth: { geo, base }, glows, morph: false };
 }
-function animSonriente(rig, grp, mode, dt) {
+function setMorph(rig, on) { if (rig.morph === on) return; rig.morph = on; rig.calmG.visible = !on; rig.horrorG.visible = on; rig.head.material = on ? MAT.faceHorror : MAT.faceCalm; }
+function animDama(rig, grp, mode, dt) {
   if (!grp.visible) return;
-  const t = sim.t;
-  if (t > rig.twitchAt) { rig.tilt = rand(-0.6, 0.6); rig.twitchAt = t + (mode === 'twitch' ? 0.05 : rand(0.15, 1.0)); }
-  rig.headG.rotation.z += (rig.tilt - rig.headG.rotation.z) * Math.min(1, dt * 30); rig.headG.rotation.x = Math.sin(t * 13) * 0.03 - rig.torso.rotation.x * 0.95;   // keeps staring at you while it bends
-  rig.hair.rotation.x = Math.sin(t * 1.3) * 0.04; rig.hair.rotation.z = Math.sin(t * 0.9) * 0.03;
-  const reach = mode === 'reach' || mode === 'run' ? 1 : 0;
+  const t = sim.t, scream = mode === 'scream', k8 = Math.min(1, dt * 8);
+  if (scream) {   // violent: head shakes, skull stretches, the grin rips wider, arms snap up at you
+    rig.headG.rotation.set(-0.72 + rand(-0.12, 0.12), rand(-0.25, 0.25), rand(-0.4, 0.4));
+    rig.headG.scale.lerp(tmpS.set(0.94, 1.38, 1.06), Math.min(1, dt * 25)); rig.grin.scale.y += (1.6 - rig.grin.scale.y) * Math.min(1, dt * 25);
+    rig.hair.scale.lerp(tmpS.set(1.25, 1.05, 1.25), Math.min(1, dt * 20));
+    rig.torso.rotation.x += (0.78 - rig.torso.rotation.x) * Math.min(1, dt * 20); rig.torso.position.y += (1.42 - rig.torso.position.y) * Math.min(1, dt * 20);
+  } else {        // almost perfectly still, head bowed; in 'rise' she slowly lifts her face toward you
+    rig.headG.rotation.x += ((mode === 'rise' ? -0.05 : 0.38) - rig.headG.rotation.x) * Math.min(1, dt * (mode === 'rise' ? 1.6 : 4));
+    rig.headG.rotation.z += (0.13 - rig.headG.rotation.z) * k8; rig.headG.rotation.y = 0;
+    rig.headG.scale.lerp(tmpS.set(1, 1, 1), k8); rig.grin.scale.y = 1; rig.hair.scale.lerp(tmpS.set(1, 1, 1), k8);
+    rig.torso.rotation.x += (0 - rig.torso.rotation.x) * k8; rig.torso.position.y += (1.7 - rig.torso.position.y) * k8;
+  }
+  rig.torso.rotation.z = Math.sin(t * 0.6) * 0.008;
   rig.arms.forEach((a, i) => { const s = i ? 1 : -1;
-    a.shoulder.rotation.x += (-1.35 * reach + Math.sin(t * 1.7 + i) * 0.05 - a.shoulder.rotation.x) * Math.min(1, dt * 8);
-    a.shoulder.rotation.z += (s * (0.12 + 0.1 * reach) - a.shoulder.rotation.z) * Math.min(1, dt * 6);
-    a.elbow.rotation.x += ((reach ? -0.15 : -0.12) - a.elbow.rotation.x) * Math.min(1, dt * 8);
-    const curl = reach ? 0.05 : rig.curl + Math.sin(t * 3 + i) * 0.08;
-    a.fingers.forEach((f, fi) => f.forEach((j, k) => { j.rotation.x = curl * (k + 1) * 0.5 + (fi === 1 && Math.sin(t * 7) > 0.92 ? 0.6 : 0); })); });
-  const hp = getHead(), dist = Math.hypot(hp.x - grp.position.x, hp.z - grp.position.z);
-  const k = clamp((2.4 - dist) / 1.3, 0, 1);   // close up it folds down until its face is level with yours
-  rig.torso.rotation.x += ((mode === 'run' ? Math.max(0.3, k) : k) - rig.torso.rotation.x) * Math.min(1, dt * 10);
-  rig.torso.position.y += (1.7 - 0.38 * k - rig.torso.position.y) * Math.min(1, dt * 10);
-  rig.torso.rotation.z = mode === 'peek' ? rig.peekLean || 0.45 : Math.sin(t * 1.7) * 0.04;
-  grp.position.y = mode === 'run' ? Math.abs(Math.sin(t * 22)) * 0.05 : 0;
-  const pos = rig.cloth.geo.attributes.position, b = rig.cloth.base, amp = mode === 'run' ? 0.06 : 0.025;   // shroud flutters
-  for (let i = 0; i < pos.count; i++) { const y = b[i * 3 + 1]; if (y > 1.0) continue; const k = 1 - y, a = Math.atan2(b[i * 3], b[i * 3 + 2]);
-    const w = 1 + amp * k * Math.sin(t * 3.1 + a * 5 + y * 6); pos.setX(i, b[i * 3] * w); pos.setZ(i, b[i * 3 + 2] * w); }
+    a.shoulder.rotation.x += ((scream ? -1.5 : 0.02) - a.shoulder.rotation.x) * Math.min(1, dt * (scream ? 22 : 4));
+    a.shoulder.rotation.z += (s * (scream ? 0.35 : 0.08) - a.shoulder.rotation.z) * Math.min(1, dt * 10);
+    a.elbow.rotation.x += ((scream ? -0.1 : -0.18) - a.elbow.rotation.x) * k8;
+    a.fingers.forEach(f => f.forEach((j, k) => { j.rotation.x = scream ? -0.15 : 0.32 * (k + 1) * 0.5; })); });
+  const pos = rig.cloth.geo.attributes.position, b = rig.cloth.base, amp = scream ? 0.09 : 0.01;
+  for (let i = 0; i < pos.count; i++) { const y = b[i * 3 + 1]; if (y > 1.0) continue; const kk = 1 - y, a = Math.atan2(b[i * 3], b[i * 3 + 2]);
+    const w = 1 + amp * kk * Math.sin(t * (scream ? 14 : 1.5) + a * 5 + y * 6); pos.setX(i, b[i * 3] * w); pos.setZ(i, b[i * 3 + 2] * w); }
   pos.needsUpdate = true;
-  rig.glows.forEach(g => g.material.opacity = 0.6 + 0.4 * Math.sin(t * 9));
+  if (rig.morph) rig.glows.forEach(g => g.material.opacity = 0.7 + 0.3 * Math.sin(t * 30));
 }
+const tmpS = new V3();
 
 /* --- El Reptante: emaciated body bent into a spider, ribs and spine through the skin, head twisted upside down, jaw hanging open --- */
 function buildReptante(root) {
@@ -471,6 +501,7 @@ function buildReptante(root) {
   for (const [s, z, front] of [[-1, 0.3, 1], [1, 0.3, 1], [-1, -0.36, 0], [1, -0.36, 0]]) {
     const hip = new THREE.Group(); hip.position.set(s * 0.12, 0.02, z); body.add(hip);
     const knee = new V3(s * 0.42, 0.42, front ? 0.18 : -0.12), foot = new V3(s * 0.6, -0.52, front ? 0.42 : -0.3);
+    const mus = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), MAT.dead); mus.scale.set(0.05, 0.2, 0.045); mus.position.copy(knee).multiplyScalar(0.42); mus.quaternion.setFromUnitVectors(YUP, knee.clone().normalize()); hip.add(mus);
     hip.add(joint(0.046, MAT.dead), bone(new V3(), knee, 0.05, 0.03, MAT.dead), joint(0.034, MAT.dead).translateX(knee.x).translateY(knee.y).translateZ(knee.z), bone(knee, foot, 0.03, 0.014, MAT.dead));
     for (let k = -1; k <= 1; k++) { const tip = foot.clone().add(new V3(s * 0.04 + k * 0.03, -0.01, (front ? 0.12 : -0.1) + k * 0.02));
       hip.add(bone(foot, tip, 0.008, 0.003, MAT.dead, 4)); const n = new THREE.Mesh(new THREE.ConeGeometry(0.005, 0.03, 4), MAT.nail);
@@ -484,7 +515,7 @@ function animReptante(rig, grp, mode, dt) {
   rig.limbs.forEach((l, i) => { const ph = t * sp + l.phase + (i % 2) * Math.PI;
     l.hip.rotation.y = Math.sin(ph) * 0.38 * l.s; l.hip.rotation.x = Math.max(0, Math.sin(ph)) * 0.25; });
   rig.headG.rotation.y = Math.sin(t * 5.3) * 0.25 + (Math.sin(t * 17) > 0.9 ? 0.4 : 0);
-  rig.jaw.rotation.x = mode === 'attack' || mode === 'drop' ? 0.5 : 0.18 + Math.sin(t * 2) * 0.08;
+  rig.jaw.rotation.x = mode === 'attack' || mode === 'hang' ? 0.6 : 0.18 + Math.sin(t * 2) * 0.08;
   rig.body.position.x = Math.sin(t * sp * 0.5) * 0.015;
   rig.ribs.forEach((r, i) => r.scale.y = 0.85 + Math.sin(t * 6 + i) * 0.03);   // laboured breathing
   const rear = mode === 'attack' ? 1 : 0;
@@ -492,28 +523,98 @@ function animReptante(rig, grp, mode, dt) {
   rig.body.position.y += (0.52 + rear * 0.8 - rig.body.position.y) * Math.min(1, dt * 12);
 }
 
-/* --- maniquíes: old shop dummies, featureless, in poses that change when nobody is looking --- */
-function buildMannequin(root) {
-  const pl = MAT.plastic;
-  const prof = [[0.0, 0], [0.13, 0.02], [0.155, 0.12], [0.12, 0.3], [0.165, 0.5], [0.19, 0.62], [0.09, 0.72], [0.045, 0.78], [0.0, 0.8]].map(([r, y]) => new THREE.Vector2(r, y));
-  const torso = new THREE.Mesh(new THREE.LatheGeometry(prof, 22), pl); torso.scale.z = 0.7; torso.position.y = 0.92;
-  const headG = new THREE.Group(); headG.position.y = 1.86;
-  const h = new THREE.Mesh(new THREE.SphereGeometry(1, 22, 16), pl); h.scale.set(0.095, 0.13, 0.11); headG.add(h);
-  const legs = [-1, 1].map(s => { const g = new THREE.Group(); g.add(bone(new V3(s * 0.08, 0.93, 0), new V3(s * 0.09, 0.48, 0.02), 0.06, 0.045, pl), joint(0.045, pl).translateX(s * 0.09).translateY(0.48),
-    bone(new V3(s * 0.09, 0.48, 0.02), new V3(s * 0.1, 0.05, 0), 0.042, 0.032, pl)); return g; });
-  const arms = [-1, 1].map(s => { const sh = new THREE.Group(); sh.position.set(s * 0.2, 1.5, 0); sh.add(joint(0.042, pl), bone(new V3(), new V3(0, -0.3, 0), 0.04, 0.032, pl));
-    const el = new THREE.Group(); el.position.y = -0.3; sh.add(el); el.add(joint(0.032, pl), bone(new V3(), new V3(0, -0.28, 0), 0.03, 0.022, pl));
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), pl); hand.scale.set(0.03, 0.06, 0.018); hand.position.y = -0.32; el.add(hand); return { sh, el }; });
-  const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 0.03, 18), MAT.metal); stand.position.y = 0.015;
-  root.add(torso, headG, ...legs, ...arms.map(a => a.sh), stand);
-  return { headG, arms };
+/* --- El Carnicero: a huge hunched man, burlap sack stitched over his head, blood-soaked shirt and leather apron, a cleaver in his hand --- */
+function burlapCanvas() { const cv = makeCanvas(256), g = cv.getContext('2d'); g.fillStyle = '#3a2f20'; g.fillRect(0, 0, 256, 256);
+  for (let y = 0; y < 256; y += 4) { g.fillStyle = 'rgba(25,16,8,.38)'; g.fillRect(0, y + rand(-0.5, 0.5), 256, 1.6); }
+  for (let x = 0; x < 256; x += 4) { g.fillStyle = 'rgba(25,16,8,.32)'; g.fillRect(x, 0, 1.6, 256); }
+  grain(g, 256, 256, 30); blotches(g, 256, 14, 30, 'rgba(75,8,6,.6)'); blotches(g, 256, 10, 40, 'rgba(18,12,6,.5)');
+  for (let i = 0; i < 8; i++) { g.strokeStyle = 'rgba(80,6,6,.55)'; g.lineWidth = rand(2, 5); const x = rand(0, 256); g.beginPath(); g.moveTo(x, rand(80, 140)); g.lineTo(x + rand(-4, 4), rand(180, 256)); g.stroke(); }
+  return cv; }
+function stainedCanvas(base, blood) { const cv = makeCanvas(256), g = cv.getContext('2d'); g.fillStyle = base; g.fillRect(0, 0, 256, 256); grain(g, 256, 256, 24);
+  blotches(g, 256, 18, 26, 'rgba(30,22,14,.45)'); blotches(g, 256, blood, 34, 'rgba(85,6,8,.7)');
+  for (let i = 0; i < blood; i++) { g.fillStyle = 'rgba(95,8,8,.75)'; for (let k = 0; k < 12; k++) { g.beginPath(); g.arc(rand(0, 256), rand(0, 256), rand(1, 4), 0, 6.28); g.fill(); } }
+  return cv; }
+MAT.burlap = (() => { const cv = burlapCanvas(); return new THREE.MeshStandardMaterial({ map: texFrom(cv, 2, 2), bumpMap: texFrom(cv, 2, 2, false), bumpScale: 0.01, roughness: 1 }); })();
+MAT.shirt = new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#2b251e', 7), 2, 2), roughness: 0.95 });
+MAT.apron = new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#1b130d', 12), 1, 2), roughness: 0.45, side: THREE.DoubleSide });
+MAT.pants = new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#121110', 2), 2, 2), roughness: 0.95 });
+MAT.boot = new THREE.MeshStandardMaterial({ color: 0x17110d, roughness: 0.6 });
+MAT.flesh = (() => { const cv = skinCanvas('#3e302a', 24, 6, 'rgba(60,15,15,.5)'); return new THREE.MeshStandardMaterial({ map: texFrom(cv), bumpMap: texFrom(cv, 1, 1, false), bumpScale: 0.005, roughness: 0.6 }); })();
+MAT.rope = new THREE.MeshStandardMaterial({ color: 0x5b4630, roughness: 1 });
+MAT.blade = (() => { const cv = makeCanvas(128), g = cv.getContext('2d'); g.fillStyle = '#8b8d8f'; g.fillRect(0, 0, 128, 128); grain(g, 128, 128, 30);
+  blotches(g, 128, 10, 22, 'rgba(110,50,20,.6)'); blotches(g, 128, 6, 18, 'rgba(90,5,5,.7)'); return new THREE.MeshStandardMaterial({ map: texFrom(cv), metalness: 0.75, roughness: 0.4 }); })();
+MAT.wood = new THREE.MeshStandardMaterial({ color: 0x3b2616, roughness: 0.8 });
+const capsule = (r, len, mat) => new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 5, 12), mat);
+function buildCarnicero(root) {
+  const hips = new THREE.Group(); hips.position.y = 0.98; root.add(hips);
+  const legs = [-1, 1].map(s => { const thigh = new THREE.Group(); thigh.position.set(s * 0.115, 0, 0); hips.add(thigh);
+    const th = capsule(0.088, 0.34, MAT.pants); th.position.y = -0.22; thigh.add(th);
+    const knee = new THREE.Group(); knee.position.y = -0.45; thigh.add(knee); knee.add(joint(0.075, MAT.pants));
+    const sh = capsule(0.07, 0.34, MAT.pants); sh.position.y = -0.21; knee.add(sh);
+    const boot = capsule(0.068, 0.16, MAT.boot); boot.rotation.x = Math.PI / 2; boot.position.set(0, -0.47, 0.06); boot.scale.set(1.1, 1, 0.75); knee.add(boot);
+    return { thigh, knee }; });
+  const torso = new THREE.Group(); hips.add(torso);
+  const prof = [[0.17, -0.05], [0.2, 0.1], [0.225, 0.26], [0.245, 0.42], [0.26, 0.54], [0.22, 0.63], [0.1, 0.7], [0.07, 0.72]].map(([r, y]) => new THREE.Vector2(r, y));
+  const chest = new THREE.Mesh(new THREE.LatheGeometry(prof, 22), MAT.shirt); chest.scale.z = 0.78; torso.add(chest);
+  const apron = new THREE.Mesh(new THREE.CylinderGeometry(0.235, 0.29, 1.0, 16, 4, true, -0.95, 1.9), MAT.apron); apron.scale.z = 0.82; apron.position.set(0, 0.05, 0.012);
+  const ap = apron.geometry.attributes.position; for (let i = 0; i < ap.count; i++) if (ap.getY(i) < -0.45) ap.setY(i, ap.getY(i) - Math.random() * 0.08);
+  const strap = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.012, 4, 20, Math.PI), MAT.apron); strap.position.set(0, 0.6, 0.06); strap.rotation.x = -0.3; torso.add(apron, strap);
+  const neck = bone(new V3(0, 0.66, 0), new V3(0, 0.8, 0.04), 0.075, 0.062, MAT.flesh);
+  const headG = new THREE.Group(); headG.position.set(0, 0.92, 0.05);
+  const sackGeo = new THREE.SphereGeometry(1, 28, 22); const sp = sackGeo.attributes.position;
+  for (let i = 0; i < sp.count; i++) { const n = 1 + 0.05 * Math.sin(sp.getX(i) * 9 + sp.getY(i) * 7) + rand(-0.025, 0.025); sp.setXYZ(i, sp.getX(i) * n, sp.getY(i) * n, sp.getZ(i) * n); }
+  sackGeo.computeVertexNormals();
+  const sack = new THREE.Mesh(sackGeo, MAT.burlap); sack.scale.set(0.14, 0.168, 0.145); headG.scale.setScalar(1.18);
+  const gather = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.11, 0.12, 14, 2, true), MAT.burlap); gather.position.y = -0.17;
+  const rope = new THREE.Mesh(new THREE.TorusGeometry(0.078, 0.014, 6, 22), MAT.rope); rope.rotation.x = Math.PI / 2; rope.position.y = -0.13;
+  const knot = joint(0.024, MAT.rope); knot.position.set(0.05, -0.135, 0.06);
+  const zS = (x, y) => 0.145 * Math.sqrt(Math.max(0.0009, 1 - (x / 0.14) ** 2 - (y / 0.168) ** 2));
+  const eyes = [[-0.05, 0.03, 0.2], [0.052, 0.022, -0.15]].map(([x, y, rot]) => { const hole = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), MAT.void);
+    hole.scale.set(0.032, 0.022, 0.012); hole.rotation.z = rot; hole.position.set(x, y, zS(x, y) - 0.002);
+    const glint = new THREE.Mesh(new THREE.SphereGeometry(0.0055, 8, 6), new THREE.MeshBasicMaterial({ color: 0xd9cfb0 })); glint.position.set(x + 0.004, y, zS(x, y) + 0.004);
+    headG.add(hole, glint); return glint; });
+  const mouthPts = []; for (let i = 0; i <= 10; i++) { const x = -0.055 + i * 0.011, y = -0.065 - Math.sin(i / 10 * Math.PI) * 0.008 + rand(-0.003, 0.003); mouthPts.push(new V3(x, y, zS(x, y) + 0.002)); }
+  headG.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(mouthPts), 30, 0.0035, 4), MAT.void));
+  for (let i = 1; i < 10; i += 1) { const pM = mouthPts[i]; headG.add(bone(pM.clone().add(new V3(-0.004, 0.012, 0.001)), pM.clone().add(new V3(0.004, -0.012, 0.001)), 0.0018, 0.0018, MAT.rope, 4)); }
+  headG.add(sack, gather, rope, knot);
+  const arm = s => { const sh = new THREE.Group(); sh.position.set(s * 0.31, 0.56, 0); sh.add(joint(0.085, MAT.shirt));
+    const up = capsule(0.068, 0.26, MAT.shirt); up.position.y = -0.18; sh.add(up);
+    const el = new THREE.Group(); el.position.y = -0.37; sh.add(el); el.add(joint(0.058, MAT.flesh));
+    const fo = capsule(0.056, 0.25, MAT.flesh); fo.position.y = -0.17; el.add(fo);
+    const wr = new THREE.Group(); wr.position.y = -0.35; el.add(wr);
+    const palm = capsule(0.04, 0.05, MAT.flesh); palm.scale.set(1.25, 1, 0.65); palm.position.y = -0.05; wr.add(palm);
+    for (let f = 0; f < 4; f++) { const fx = (f - 1.5) * 0.022; wr.add(bone(new V3(fx, -0.08, 0.005), new V3(fx * 1.1, -0.14, 0.03), 0.012, 0.01, MAT.flesh, 6), bone(new V3(fx * 1.1, -0.14, 0.03), new V3(fx * 1.1, -0.18, 0.055), 0.01, 0.008, MAT.flesh, 6)); }
+    wr.add(bone(new V3(s * -0.035, -0.04, 0.02), new V3(s * -0.04, -0.1, 0.06), 0.012, 0.01, MAT.flesh, 6));
+    return { sh, el, wr }; };
+  const armL = arm(-1), armR = arm(1);
+  const cleaver = new THREE.Group(); cleaver.position.set(0, -0.13, 0.05); cleaver.rotation.x = 0.25; armR.wr.add(cleaver);
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.13, 8), MAT.wood); cleaver.add(handle);
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.24, 0.12), MAT.blade); blade.position.set(0, -0.17, 0.035); cleaver.add(blade);
+  torso.add(neck, headG, armL.sh, armR.sh);
+  torso.rotation.x = 0.28;
+  return { hips, torso, headG, legs, arms: [armL, armR], phase: 0, eyes };
 }
-function poseMannequin(rig, k) { // k: 0 = shop pose ... 1 = reaching for you
-  const t = Math.random();
-  rig.headG.rotation.set(rand(-0.2, 0.3) * (1 + k), rand(-0.4, 0.4), rand(-0.5, 0.5) * (0.5 + k));
-  rig.arms.forEach((a, i) => { const reach = Math.random() < 0.3 + 0.6 * k; a.sh.rotation.set(reach ? -rand(1.0, 1.5) : rand(-0.3, 0.3), 0, (i ? 1 : -1) * rand(0.05, 0.3));
-    a.el.rotation.x = reach ? -rand(0, 0.3) : -rand(0.1, 0.9); });
-  return t;
+function animCarnicero(rig, grp, mode, dt, speed) {
+  if (!grp.visible) return;
+  const t = sim.t, moving = mode === 'walk' || mode === 'run', run = mode === 'run', amp = run ? 1.25 : moving ? 0.8 : 0;
+  rig.phase += dt * (run ? 9.5 : 5.2) * (moving ? 1 : 0);
+  const ph = rig.phase, k = Math.min(1, dt * 10);
+  rig.legs.forEach((l, i) => { const s = Math.sin(ph + i * Math.PI);
+    l.thigh.rotation.x += (-s * 0.55 * amp - l.thigh.rotation.x) * k;
+    l.knee.rotation.x += (Math.max(0, Math.sin(ph + i * Math.PI - 1.2)) * 1.0 * amp - l.knee.rotation.x) * k; });
+  rig.hips.position.y += (0.98 + Math.abs(Math.sin(ph)) * 0.045 * amp - (run ? 0.06 : 0) - (mode === 'attack' ? 0.3 : 0) - rig.hips.position.y) * k;
+  rig.torso.rotation.x += ((mode === 'attack' ? 0.95 : run ? 0.5 : 0.28) - rig.torso.rotation.x) * k;
+  rig.torso.rotation.y = Math.sin(ph) * 0.08 * amp;
+  const [aL, aR] = rig.arms;
+  if (mode === 'attack') { aL.sh.rotation.x += (-1.6 - aL.sh.rotation.x) * k; aR.sh.rotation.x += (-2.6 - aR.sh.rotation.x) * k; aR.el.rotation.x += (-0.8 - aR.el.rotation.x) * k; }
+  else if (mode === 'alert') { aR.sh.rotation.x += (-1.2 - aR.sh.rotation.x) * k; aL.sh.rotation.x += (-0.4 - aL.sh.rotation.x) * k; }
+  else { aL.sh.rotation.x += (Math.sin(ph) * 0.45 * amp - aL.sh.rotation.x) * k; aR.sh.rotation.x += ((run ? -0.9 : 0) - Math.sin(ph) * 0.35 * amp - aR.sh.rotation.x) * k;
+    aL.el.rotation.x += (-0.3 - aL.el.rotation.x) * k; aR.el.rotation.x += (-0.45 - aR.el.rotation.x) * k; }
+  // head: scans slowly when patrolling or searching, snaps when it hears you
+  const scan = mode === 'look' ? Math.sin(t * 1.6) * 0.9 : moving && !run ? Math.sin(t * 0.7) * 0.35 : 0;
+  rig.headG.rotation.y += (scan - rig.headG.rotation.y) * Math.min(1, dt * 5);
+  rig.headG.rotation.z = mode === 'alert' ? 0.3 : Math.sin(t * 0.9) * 0.05;
+  rig.headG.rotation.x = -rig.torso.rotation.x * (mode === 'attack' ? 0.9 : 0.6);
 }
 
 /* ================= PLAYER / INPUT ================= */
@@ -536,7 +637,7 @@ walkBtn.addEventListener('pointerup', () => { input.walk = 0; }); walkBtn.addEve
 
 const headPos = new V3(), tmpV = new V3(), tmpQ = new THREE.Quaternion(), camDir = new V3();
 function getHead() { camera.getWorldPosition(headPos); return headPos; }
-function blocked(x, z, rad = 0.32) { for (const [ox, oz] of [[-rad, -rad], [rad, -rad], [-rad, rad], [rad, rad]]) { const ch = cellAt(x + ox, z + oz); if (ch === '#' || (ch === 'D' && !doorOpen)) return true; } return false; }
+function blocked(x, z, rad = 0.32) { for (const l of lockers) if (Math.abs(x - l.x) < 0.5 && Math.abs(z - l.z) < 0.5) return true; for (const [ox, oz] of [[-rad, -rad], [rad, -rad], [-rad, rad], [rad, rad]]) { const ch = cellAt(x + ox, z + oz); if (ch === '#' || (ch === 'D' && !doorOpen)) return true; } return false; }
 function tryMove(dx, dz) { const h = getHead(); const bx = blocked(h.x + dx, h.z); if (!bx) dolly.position.x += dx; if (!blocked(h.x + (bx ? 0 : dx), h.z + dz)) dolly.position.z += dz; }
 function forwardXZ() { camera.getWorldDirection(tmpV); tmpV.y = 0; return tmpV.lengthSq() < 1e-6 ? tmpV.set(0, 0, -1) : tmpV.normalize(); }
 function los(a, b) { const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz), n = Math.ceil(d / 0.2);
@@ -545,7 +646,7 @@ function inView(p, cosMin = 0.55) { const h = getHead(); camera.getWorldDirectio
   return v.dot(camDir) / d > cosMin && los(h, p); }
 function lookingAtXZ(p, cosMin) { const h = getHead(), f = forwardXZ(), dx = p.x - h.x, dz = p.z - h.z, d = Math.hypot(dx, dz) || 1; return (dx * f.x + dz * f.z) / d > cosMin && los(h, p); }
 
-let snapReady = true; const btnPrev = { x: false, y: false };
+let snapReady = true; const btnPrev = { x: false, y: false, a: false };
 function buzz(gp, v, ms) { try { gp.hapticActuators?.[0]?.pulse?.(v, ms); } catch (_) {} }
 function buzzAll(v, ms) { const s = renderer.xr.getSession(); if (s) for (const src of s.inputSources) if (src.gamepad) buzz(src.gamepad, v, ms); }
 function vrInput(dt) {
@@ -556,8 +657,9 @@ function vrInput(dt) {
       if (bx && !btnPrev.x) { heartReact(25); logEvent('test_button', 'X'); buzz(gp, 0.8, 120); }
       if (by && !btnPrev.y) { sim.spike = 0; logEvent('test_button', 'Y'); buzz(gp, 0.3, 60); }
       btnPrev.x = bx; btnPrev.y = by;
-      if (Math.hypot(x, y) > 0.15 && !dragged()) { const f = forwardXZ().clone(), rt = new V3(-f.z, 0, f.x), sp = 1.6 * dt; tryMove((f.x * -y + rt.x * x) * sp, (f.z * -y + rt.z * x) * sp); }
-    } else if (src.handedness === 'right') { if (Math.abs(x) > 0.7 && snapReady) { snapReady = false; snapTurn(x > 0 ? -Math.PI / 6 : Math.PI / 6); } if (Math.abs(x) < 0.3) snapReady = true; } }
+      if (Math.hypot(x, y) > 0.15 && !dragged() && !hidden) { const f = forwardXZ().clone(), rt = new V3(-f.z, 0, f.x), sp = 1.6 * dt; tryMove((f.x * -y + rt.x * x) * sp, (f.z * -y + rt.z * x) * sp); }
+    } else if (src.handedness === 'right') { const ba = !!gp.buttons[4]?.pressed; if (ba && !btnPrev.a) toggleHide(); btnPrev.a = ba;
+      if (Math.abs(x) > 0.7 && snapReady && !hidden) { snapReady = false; snapTurn(x > 0 ? -Math.PI / 6 : Math.PI / 6); } if (Math.abs(x) < 0.3) snapReady = true; } }
 }
 function snapTurn(a) { const before = getHead().clone(); dolly.rotation.y += a; dolly.updateMatrixWorld(true); const after = getHead(); dolly.position.x += before.x - after.x; dolly.position.z += before.z - after.z; }
 
@@ -616,6 +718,25 @@ function sfxShriek(dest) { if (!AC) return; dest = dest || fx; const o = AC.crea
 function sfxCreak(dest) { if (!AC) return; const o = AC.createOscillator(), g = AC.createGain(); o.type = 'sawtooth'; o.frequency.setValueAtTime(rand(70, 110), AC.currentTime);
   o.frequency.linearRampToValueAtTime(rand(140, 200), AC.currentTime + 0.5); const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 600; bp.Q.value = 6;
   o.connect(bp); bp.connect(g); g.connect(dest || fx); env(g, AC.currentTime, 0.05, 0.25, 0.5); o.start(); o.stop(AC.currentTime + 0.6); }
+function sfxScreamer() { if (!AC) return; const t = AC.currentTime, ws = AC.createWaveShaper(), curve = new Float32Array(1024);
+  for (let i = 0; i < 1024; i++) curve[i] = Math.tanh((i / 512 - 1) * 7); ws.curve = curve; const g = AC.createGain(); ws.connect(g); g.connect(fx); env(g, t, 0.004, 0.55, 1.1);
+  [690, 1030, 1540, 2100].forEach((f, i) => { const o = AC.createOscillator(), lfo = AC.createOscillator(), lg = AC.createGain(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(f * 1.35, t); o.frequency.exponentialRampToValueAtTime(f * 0.68, t + 1.0); lfo.frequency.value = 9 + i * 3.3; lg.gain.value = f * 0.06;
+    lfo.connect(lg); lg.connect(o.frequency); o.connect(ws); o.start(t); lfo.start(t); o.stop(t + 1.2); lfo.stop(t + 1.2); });
+  noiseHit(0.9, 3200, 0.6, 1.0, 'bandpass'); }
+function sfxHeavyStep(dest, vol = 1) { if (!AC) return; noiseHit(0.16, 140, 1, vol, 'lowpass', dest); const o = AC.createOscillator(), g = AC.createGain();
+  o.frequency.setValueAtTime(58, AC.currentTime); o.frequency.exponentialRampToValueAtTime(34, AC.currentTime + 0.15); o.connect(g); g.connect(dest || fx); env(g, AC.currentTime, 0.004, vol * 0.8, 0.16); o.start(); o.stop(AC.currentTime + 0.25); }
+function sfxBreathDeep(dest) { if (!AC) return; [0, 1.15].forEach((k, i) => { const s = AC.createBufferSource(); s.buffer = noiseBuffer(1.2); const fl = AC.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = i ? 520 : 380;
+  const g = AC.createGain(); s.connect(fl); fl.connect(g); g.connect(dest || fx); const w = AC.currentTime + k; g.gain.setValueAtTime(0.0001, w); g.gain.linearRampToValueAtTime(0.9, w + 0.45); g.gain.linearRampToValueAtTime(0.0001, w + 1.0); s.start(w); s.stop(w + 1.2);
+  const o = AC.createOscillator(), og = AC.createGain(); o.type = 'sawtooth'; o.frequency.value = i ? 62 : 55; o.connect(og); og.connect(fl); og.gain.setValueAtTime(0.0001, w); og.gain.linearRampToValueAtTime(0.25, w + 0.45); og.gain.linearRampToValueAtTime(0.0001, w + 1.0); o.start(w); o.stop(w + 1.1); }); }
+function sfxGrowl(dest, loud = 1) { if (!AC) return; const t = AC.currentTime, o = AC.createOscillator(), lfo = AC.createOscillator(), lg = AC.createGain(), bp = AC.createBiquadFilter(), g = AC.createGain();
+  o.type = 'sawtooth'; o.frequency.setValueAtTime(95, t); o.frequency.linearRampToValueAtTime(70, t + 1.0); lfo.frequency.value = 23; lg.gain.value = 18; lfo.connect(lg); lg.connect(o.frequency);
+  bp.type = 'bandpass'; bp.frequency.value = 420; bp.Q.value = 1.4; o.connect(bp); bp.connect(g); g.connect(dest || fx); env(g, t, 0.05, 0.9 * loud, 1.0); o.start(t); lfo.start(t); o.stop(t + 1.2); lfo.stop(t + 1.2);
+  noiseHit(0.9, 600, 1.2, 0.5 * loud, 'bandpass', dest); }
+function sfxRoar(dest) { sfxGrowl(dest, 1.6); if (AC) sfxScream(dest); }
+function sfxScrape(dest) { if (!AC) return; const s = AC.createBufferSource(); s.buffer = noiseBuffer(1.4); const fl = AC.createBiquadFilter(); fl.type = 'bandpass'; fl.frequency.value = 2600; fl.Q.value = 5;
+  const g = AC.createGain(), am = AC.createOscillator(), ag = AC.createGain(); am.frequency.value = 13; ag.gain.value = 0.12; am.connect(ag); ag.connect(g.gain); s.connect(fl); fl.connect(g); g.connect(dest || fx);
+  g.gain.setValueAtTime(0.0001, AC.currentTime); g.gain.linearRampToValueAtTime(0.25, AC.currentTime + 0.3); g.gain.linearRampToValueAtTime(0.0001, AC.currentTime + 1.3); s.start(); am.start(); s.stop(AC.currentTime + 1.4); am.stop(AC.currentTime + 1.4); }
 function sfxPickup() { if (!AC) return; [660, 990].forEach((f, i) => { const o = AC.createOscillator(), g = AC.createGain(); o.type = 'triangle'; o.frequency.value = f; o.connect(g); g.connect(fx);
   env(g, AC.currentTime + i * 0.09, 0.01, 0.15, 0.4); o.start(AC.currentTime + i * 0.09); o.stop(AC.currentTime + i * 0.09 + 0.5); }); }
 
@@ -688,7 +809,7 @@ let toastT = 0;
 function toast(msg, sec = 2.2) { const el = $('toast'); el.textContent = msg; el.style.opacity = 1; toastT = sec; }
 function flashRed(op = 0.45) { const f = $('flash'); f.style.transition = 'none'; f.style.opacity = op; requestAnimationFrame(() => { f.style.transition = 'opacity .5s'; f.style.opacity = 0; }); }
 function freeAhead(maxD = 10) { const h = getHead(), f = forwardXZ().clone(); let d = 0.5; while (d < maxD && !blocked(h.x + f.x * d, h.z + f.z * d, 0.2)) d += 0.25; return { h, f, d: d - 0.4 }; }
-function faceTo(g, p) { g.lookAt(p.x, g.position.y, p.z); }
+function faceTo(g, p) { g.rotation.set(0, Math.atan2(p.x - g.position.x, p.z - g.position.z), 0); }   // yaw only, so turnToward stays consistent
 let flickerUntil = 0, blackoutUntil = 0, veilTarget = 0;
 const playerCell = () => { const h = getHead(); return [Math.floor(h.x / CELL), Math.floor(h.z / CELL)]; };
 function bfs(from, skipKey) { const dist = new Map([[key(...from), 0]]), q = [from];
@@ -696,174 +817,265 @@ function bfs(from, skipKey) { const dist = new Map([[key(...from), 0]]), q = [fr
     if (!dist.has(k) && isFreeCell(...n) && k !== skipKey) { dist.set(k, dist.get(key(c, r)) + 1); q.push(n); } } }
   return dist; }
 
-/* ================= SCRIPTED SCARES (fixed places, same for every player) ================= */
-const app = new THREE.Group(); const appRig = buildSonriente(app); app.visible = false; scene.add(app);
-let appUntil = 0;
-function showApparition(dist, secs) { const { h, f, d } = freeAhead(); const k = Math.min(dist, d); if (k < 0.8) return false;
-  app.position.set(h.x + f.x * k, 0, h.z + f.z * k); faceTo(app, h); app.visible = true; appUntil = sim.t + secs; return true; }
+/* ================= ENEMIES =================
+   Each one is a different kind of fear:
+   - La Señora de negro: sudden terror. Only screamers; she never chases or attacks.
+   - El Reptante: paranoia. Only on the ceiling; appears often and unpredictably, watches you, vanishes.
+   - El Carnicero: fear of being found. Patrols, sees you, hunts you; break his line of sight or hide in a locker. */
+const pickW = w => { const ks = Object.keys(w).filter(k => w[k] > 0), tot = ks.reduce((a, k) => a + w[k], 0); if (!ks.length) return null;
+  let r = Math.random() * tot; for (const k of ks) { r -= w[k]; if (r <= 0) return k; } return ks.at(-1); };
+function moveToward(g, tx, tz, speed, dt) { const p = g.position, dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz); if (d < 0.01) return d;
+  const st = Math.min(d, speed * dt), nx = p.x + dx / d * st, nz = p.z + dz / d * st; if (!blocked(nx, p.z, 0.25)) p.x = nx; if (!blocked(p.x, nz, 0.25)) p.z = nz; return Math.max(0, d - st); }
+function turnToward(g, x, z, k) { let dA = Math.atan2(x - g.position.x, z - g.position.z) - g.rotation.y; dA = Math.atan2(Math.sin(dA), Math.cos(dA)); g.rotation.y += dA * Math.min(1, k); }
+function cornerSpot(minD, maxD) {   // a hidden cell right around a corner from somewhere you can see
+  const h = getHead(), f = forwardXZ(), out = [];
+  for (const c of FREE) { if (sealed.has(key(c.c, c.r)) || 'EDL'.includes(c.ch)) continue; const d = Math.hypot(c.x - h.x, c.z - h.z); if (d < minD || d > maxD || los(h, c)) continue;
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { if (!isFreeCell(c.c + dc, c.r + dr)) continue; const n = { x: cx(c.c + dc), z: cz(c.r + dr) };
+      if (los(h, n) && Math.hypot(n.x - h.x, n.z - h.z) > 1.5) { out.push({ c, n, score: ((c.x - h.x) * f.x + (c.z - h.z) * f.z) / d + Math.random() }); break; } } }
+  out.sort((a, b) => b.score - a.score); return out[0] || null; }
+function spotBehind(ds, sides = false) { const h = getHead(), f = forwardXZ().clone(), dirs = [[-f.x, -f.z]];
+  if (sides) dirs.push([-f.z * 0.7 - f.x * 0.7, f.x * 0.7 - f.z * 0.7], [f.z * 0.7 - f.x * 0.7, -f.x * 0.7 - f.z * 0.7], [-f.z, f.x], [f.z, -f.x]);
+  for (const [ux, uz] of dirs) for (const d of ds) { const x = h.x + ux * d, z = h.z + uz * d; if (!blocked(x, z, 0.3) && los(h, { x, z })) return { x, z }; } return null; }
+const playerSpeed = () => renderer.xr.isPresenting ? 1.6 : 2.0;
+const cellOf = (x, z) => [Math.floor(x / CELL), Math.floor(z / CELL)];
+
+const DAMA = { name: 'dama', g: new THREE.Group(), state: 'off', mode: 'still' }; DAMA.rig = buildDama(DAMA.g); DAMA.g.scale.setScalar(0.86); DAMA.g.visible = false; scene.add(DAMA.g);
+const R = { name: 'reptante', g: new THREE.Group(), state: 'off', mode: 'idle' }; R.rig = buildReptante(R.g); R.g.visible = false; scene.add(R.g);
+const K = { name: 'carnicero', g: new THREE.Group(), state: 'off', mode: 'idle', detect: 0 }; K.rig = buildCarnicero(K.g); K.g.visible = false; scene.add(K.g);
+
+/* ---------- lockers: the only safe place ---------- */
+const lockerMat = (() => { const cv = makeCanvas(128, 256), g = cv.getContext('2d'); g.fillStyle = '#3c4943'; g.fillRect(0, 0, 128, 256); grain(g, 128, 256, 26);
+  for (let y = 22; y < 74; y += 8) { g.fillStyle = 'rgba(0,0,0,.8)'; g.fillRect(26, y, 76, 3); }
+  for (let y = 180; y < 232; y += 8) { g.fillStyle = 'rgba(0,0,0,.8)'; g.fillRect(26, y, 76, 3); }
+  blotches(g, 128, 12, 22, 'rgba(95,52,20,.5)'); g.fillStyle = 'rgba(15,15,15,.85)'; g.fillRect(100, 118, 8, 28); g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 3; g.strokeRect(4, 4, 120, 248);
+  return new THREE.MeshStandardMaterial({ map: texFrom(cv), metalness: 0.45, roughness: 0.65 }); })();
+const lockers = [];
+FREE.filter(c => c.ch === 'L').forEach(c => { const wall = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dc, dr]) => MAP[c.r + dr][c.c + dc] === '#');
+  const x = c.x + wall[0] * (CELL / 2 - 0.33), z = c.z + wall[1] * (CELL / 2 - 0.33);
+  const g = new THREE.Group(); const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 2.1, 0.62), lockerMat); body.position.y = 1.05; g.add(body);
+  g.position.set(x, 0, z); g.lookAt(c.x, 0, c.z); scene.add(g);
+  lockers.push({ g, x, z, out: { x: c.x - wall[0] * 0.2, z: c.z - wall[1] * 0.2 }, faceYaw: Math.atan2(-(c.x - x), -(c.z - z)) }); });
+let hidden = null, hideSince = 0;
+const nearLocker = () => { const h = getHead(); return lockers.find(l => Math.hypot(h.x - l.out.x, h.z - l.out.z) < 1.3); };
+function placeHead(x, z) { const h = getHead(); dolly.position.x += x - h.x; dolly.position.z += z - h.z; }
+function faceYawVR(target) { camera.getWorldDirection(camDir); const cur = Math.atan2(-camDir.x, -camDir.z); let d = target - cur; d = Math.atan2(Math.sin(d), Math.cos(d)); snapTurn(d); }
+const slatsCv = makeCanvas(512); (function () { const g = slatsCv.getContext('2d'); g.fillStyle = '#050403'; g.fillRect(0, 0, 512, 512); g.globalCompositeOperation = 'destination-out';
+  for (let y = 190; y < 330; y += 22) { g.fillRect(150, y, 212, 8); } g.globalCompositeOperation = 'source-over'; })();
+const vrSlats = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.4), new THREE.MeshBasicMaterial({ map: texFrom(slatsCv), transparent: true, depthTest: false, depthWrite: false, fog: false }));
+vrSlats.position.set(0, 0, -0.11); vrSlats.renderOrder = 999; vrSlats.visible = false; camera.add(vrSlats);
+function toggleHide(force) {
+  if (!running) return;
+  if (hidden) { const l = hidden; hidden = null; placeHead(l.out.x, l.out.z); $('slats').hidden = true; vrSlats.visible = false; sfxCreak(at(l.x, 1.2, l.z)); logEvent('hide_exit', force || ''); return; }
+  if (dragged()) return; const l = nearLocker(); if (!l) return;
+  hidden = l; hideSince = sim.t; placeHead(l.x + (l.out.x - l.x) * 0.12, l.z + (l.out.z - l.z) * 0.12);
+  if (renderer.xr.isPresenting) faceYawVR(l.faceYaw); else { yaw = l.faceYaw; pitch = 0; }
+  $('slats').hidden = renderer.xr.isPresenting; vrSlats.visible = renderer.xr.isPresenting; sfxCreak(at(l.x, 1.2, l.z)); logEvent('hide'); }
+addEventListener('keydown', e => { if (e.code === 'KeyE') toggleHide(); });
+$('hideBtn').addEventListener('click', () => toggleHide());
+
+/* ---------- La Señora de negro: screamer only ---------- */
+const DS = { until: 0, seenT: 0, trigAt: 0, mode: '', major: false, t0: 0, from: null, to: null };
+function damaPlace(mode) { const h = getHead();
+  if (mode === 'ahead' || mode === 'front') { const { f, d } = freeAhead(); const k = Math.min(mode === 'front' ? 2.4 : rand(3.0, 5.2), d); if (k < 1.8) return null; return { x: h.x + f.x * k, z: h.z + f.z * k }; }
+  if (mode === 'corner') { const sp = cornerSpot(2.4, 6); return sp ? { x: sp.c.x, z: sp.c.z } : null; }
+  if (mode === 'behind') return spotBehind([2.4, 1.9], true);
+  return null; }
+function startScream(mode, static_ = 0) { if (DAMA.state !== 'off') return false; const p = damaPlace(mode); if (!p) return false;
+  DAMA.g.position.set(p.x, 0, p.z); faceTo(DAMA.g, getHead()); setMorph(DAMA.rig, false); DAMA.g.visible = true; DAMA.mode = 'still';
+  DAMA.state = static_ ? 'static' : 'stand';
+  Object.assign(DS, { until: sim.t + (static_ || rand(10, 16)), seenT: 0, trigAt: mode === 'front' ? 0.15 : rand(0.35, 1.4), mode, major: false });
+  if (mode === 'ahead' || mode === 'front') flickerUntil = sim.t + 0.5;
+  logEvent('dama', mode + (static_ ? ':aparicion' : '')); return true; }
+function endDama(why) { if (DAMA.state === 'off') return; DAMA.state = 'off'; DAMA.g.visible = false; setMorph(DAMA.rig, false); logEvent('dama_fin', why);
+  if (DS.major) { DS.major = false; endMajor('scream', why === 'no_la_viste' ? 0.5 : 1); } }
+function damaStep(dt) {
+  if (DAMA.state === 'off') return;
+  const h = getHead(), p = DAMA.g.position, d = Math.hypot(h.x - p.x, h.z - p.z), seen = inView({ x: p.x, y: 1.55, z: p.z }, 0.7);
+  if (DAMA.state === 'static') { faceTo(DAMA.g, h); if (sim.t > DS.until) endDama('aparicion'); return; }
+  if (DAMA.state === 'stand') { faceTo(DAMA.g, h); if (seen) DS.seenT += dt;
+    if (DS.seenT > DS.trigAt || (seen && d < 2.2)) { DAMA.state = 'pre'; DAMA.mode = 'rise'; DS.until = sim.t + rand(0.55, 1.15); silence(DS.until - sim.t + 1.4); logEvent('dama_vista'); }
+    else if (d < 1.3) { DAMA.state = 'pre'; DS.until = sim.t + 0.15; }
+    else if (sim.t > DS.until) endDama('no_la_viste');
+    return; }
+  if (DAMA.state === 'pre') { faceTo(DAMA.g, h);
+    if (sim.t > DS.until) { DAMA.state = 'scream'; DAMA.mode = 'scream'; DS.t0 = sim.t; DS.until = sim.t + 0.9; DS.from = p.clone();
+      const ux = (h.x - p.x) / (d || 1), uz = (h.z - p.z) / (d || 1); DS.to = { x: h.x - ux * 0.78, z: h.z - uz * 0.78 };
+      sfxStinger(); sfxScreamer(); flashRed(0.75); buzzAll(1, 650); heartReact(24); logEvent('screamer', DS.mode); }
+    return; }
+  if (DAMA.state === 'scream') { const e = sim.t - DS.t0;
+    setMorph(DAMA.rig, !(e < 0.17 && Math.floor(e / 0.045) % 2 === 1));      // two violent flickers between the calm and the horror face
+    const k = clamp(e / 0.12, 0, 1); p.x = lerp(DS.from.x, DS.to.x, k); p.z = lerp(DS.from.z, DS.to.z, k); faceTo(DAMA.g, h);
+    if (e > 0.45) flickerUntil = sim.t + 0.1;
+    if (sim.t > DS.until) { blackoutUntil = sim.t + 0.45; endDama('screamer'); } }
+}
+
+/* ---------- El Reptante: ceiling only ---------- */
+const RC = { kind: '', until: 0, wp: null, pauseUntil: 0, react: '', reactAt: 0, unseenT: 0, silent: false, nextScratch: 0, away: null, t0: 0 };
+function setCeiling(on) { R.rig.flip.rotation.set(0, 0, on ? Math.PI : 0); R.rig.flip.position.y = on ? WALL_H : 0; }
+function ceilingSpot(minD, maxD) { const h = getHead(), pc = playerCell(), out = [];
+  for (const c of FREE) { if (sealed.has(key(c.c, c.r)) || 'ED'.includes(c.ch) || (c.c === pc[0] && c.r === pc[1])) continue;
+    for (let k = 0; k < 3; k++) { const x = c.x + rand(-0.55, 0.55), z = c.z + rand(-0.55, 0.55), d = Math.hypot(x - h.x, z - h.z);
+      if (d < minD || d > maxD || blocked(x, z, 0.35) || !los(h, { x, z })) continue;
+      out.push({ x, z, score: (inView({ x, y: WALL_H - 0.3, z }, 0.45) ? 0 : 1) + Math.random() * 0.9 }); } }
+  out.sort((a, b) => b.score - a.score); return out[0] || null; }
+function startCeiling(kind) { if (R.state !== 'off') return false; const sp = kind === 'hang' ? ceilingSpot(2.6, 5.5) : ceilingSpot(1.8, 4.3); if (!sp) return false;
+  R.g.position.set(sp.x, 0, sp.z); faceTo(R.g, getHead()); setCeiling(true); R.g.visible = true; R.state = kind === 'hang' ? 'approach' : 'lurk'; R.mode = 'idle';
+  Object.assign(RC, { kind, until: sim.t + (kind === 'hang' ? 9 : rand(12, 22)), wp: null, pauseUntil: sim.t + rand(0.3, 1.6), unseenT: 0, silent: kind !== 'hang' && Math.random() < 0.45 });
+  logEvent('techo', kind); return true; }
+function endCeiling(why) { if (R.state === 'off') return; R.state = 'off'; R.g.visible = false; setCeiling(false); logEvent('techo_fin', why);
+  if (RC.kind === 'hang') { RC.kind = ''; endMajor('hang'); } }
+function ceilingStep(dt) {
+  if (R.state === 'off') return;
+  const h = getHead(), p = R.g.position, dxz = Math.hypot(h.x - p.x, h.z - p.z), seen = inView({ x: p.x, y: WALL_H - 0.35, z: p.z }, 0.72);
+  const scratch = (rate, vol) => { if (!RC.silent && sim.t > RC.nextScratch) { RC.nextScratch = sim.t + rate * rand(0.7, 1.3); sfxScratch(at(p.x, WALL_H, p.z), vol); } };
+  switch (R.state) {
+    case 'lurk': {   // creeps slowly, stops dead, changes direction; its head always follows you
+      if (seen) { R.state = 'watched'; R.mode = 'idle'; RC.reactAt = sim.t + rand(0.6, 2.4); RC.react = pickW({ skitter: 0.35, hold: 0.45, blink: 0.2 }); RC.unseenT = 0;
+        if (!RC.silent || Math.random() < 0.5) sfxCreak(at(p.x, WALL_H, p.z)); heartReact(6); logEvent('techo_visto', RC.react); break; }
+      if (sim.t > RC.until) { endCeiling('nunca_lo_viste'); break; }
+      if (sim.t < RC.pauseUntil) { R.mode = 'idle'; break; }
+      if (!RC.wp) { for (let i = 0; i < 8 && !RC.wp; i++) { const a = rand(0, 6.28), r = rand(0.7, 2.4), x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r;
+          if (!blocked(x, z, 0.35) && Math.hypot(x - h.x, z - h.z) > 1.4) RC.wp = { x, z, sp: rand(0.25, 0.7) }; } if (!RC.wp) { RC.pauseUntil = sim.t + 1; break; } }
+      R.mode = 'crawl'; turnToward(R.g, RC.wp.x, RC.wp.z, dt * 4); const left = moveToward(R.g, RC.wp.x, RC.wp.z, RC.wp.sp, dt); scratch(0.24, clamp(1.1 / Math.max(0.8, dxz), 0.15, 0.8));
+      if (left < 0.08 || Math.random() < dt * 0.4) { RC.wp = null; RC.pauseUntil = sim.t + rand(0.5, 2.8); }
+      break; }
+    case 'watched': {   // freezes and stares back
+      turnToward(R.g, h.x, h.z, dt * 1.5);
+      if (!seen) { RC.unseenT += dt; if (RC.unseenT > 0.35) { endCeiling('dejaste_de_mirarlo'); if (Math.random() < 0.3) DIR.nextCeil = Math.min(DIR.nextCeil, sim.t + rand(2, 4)); } break; }
+      RC.unseenT = 0;
+      if (sim.t > RC.reactAt) {
+        if (RC.react === 'skitter') { R.state = 'skitter'; R.mode = 'flee'; RC.until = sim.t + 0.8; sfxHiss(at(p.x, WALL_H, p.z)); RC.away = { x: p.x + (p.x - h.x) * 4, z: p.z + (p.z - h.z) * 4 }; }
+        else if (RC.react === 'blink' || sim.t > RC.reactAt + rand(4, 7)) { R.state = 'blink'; flickerUntil = sim.t + 0.5; blackoutUntil = sim.t + 0.25; RC.until = sim.t + 0.2; } }
+      break; }
+    case 'skitter': turnToward(R.g, RC.away.x, RC.away.z, dt * 10); moveToward(R.g, RC.away.x, RC.away.z, 4.5, dt); scratch(0.05, 0.9); if (sim.t > RC.until) endCeiling('huyo'); break;
+    case 'blink': if (sim.t > RC.until) endCeiling('apagon'); break;
+    // peak event: it races across the ceiling to you and drops its upper body down into your face (it never touches the floor)
+    case 'approach': { const f = forwardXZ(), tx = h.x + f.x * 0.6, tz = h.z + f.z * 0.6; turnToward(R.g, tx, tz, dt * 8); moveToward(R.g, tx, tz, 1.9 + 1.0 * hrAro, dt); scratch(0.1, 0.9);
+      if (Math.hypot(p.x - tx, p.z - tz) < 0.35 || sim.t > RC.until) { R.state = 'prehang'; RC.until = sim.t + 0.6; silence(1.7); RC.silent = true; } break; }
+    case 'prehang': turnToward(R.g, h.x, h.z, dt * 12); if (sim.t > RC.until) { R.state = 'hang'; R.mode = 'hang'; RC.until = sim.t + 0.95; RC.t0 = sim.t;
+      sfxShriek(); sfxStinger(); flashRed(0.6); buzzAll(1, 450); heartReact(20); logEvent('techo_cuelga'); } break;
+    case 'hang': { turnToward(R.g, h.x, h.z, dt * 12); const k = clamp((sim.t - RC.t0) / 0.15, 0, 1); R.rig.flip.rotation.x = 0.6 * k; R.rig.flip.position.y = WALL_H - 0.35 * k;
+      if (sim.t > RC.until) { R.state = 'retract'; RC.until = sim.t + 0.22; } break; }
+    case 'retract': { const k = clamp((RC.until - sim.t) / 0.22, 0, 1); R.rig.flip.rotation.x = 0.6 * k; R.rig.flip.position.y = WALL_H - 0.35 * k;
+      if (sim.t > RC.until) { blackoutUntil = sim.t + 0.25; endCeiling('se_colgo'); } break; }
+  }
+}
+
+/* ---------- El Carnicero: patrols, sees, hunts, searches ---------- */
+const KC = { until: 0, path: [], pi: 0, pauseUntil: 0, last: null, lastSawT: -9, search: [], searchUntil: 0, nextRepath: 0, stepAcc: 0, nextBreath: 0, alertUntil: 0, locker: null, lockerPath: false, moved: false };
+function gridPath(from, to) { const tk = key(...to), prev = new Map([[key(...from), null]]), q = [from];
+  while (q.length) { const cur = q.shift(); if (key(...cur) === tk) break;
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const n = [cur[0] + dc, cur[1] + dr], k = key(...n);
+      if (!prev.has(k) && isFreeCell(...n) && (MAP[n[1]][n[0]] !== 'D' || doorOpen) && MAP[n[1]][n[0]] !== 'E') { prev.set(k, cur); q.push(n); } } }
+  if (!prev.has(tk)) return []; const out = []; for (let c = to; c; c = prev.get(key(...c))) out.unshift(c); return out.slice(1).map(([c, r]) => ({ x: cx(c), z: cz(r) })); }
+function setPath(tx, tz) { KC.path = gridPath(cellOf(K.g.position.x, K.g.position.z), cellOf(tx, tz)); if (KC.path.length) KC.path[KC.path.length - 1] = { x: tx, z: tz }; else KC.path = [{ x: tx, z: tz }]; KC.pi = 0; }
+function followPath(speed, dt) { const wp = KC.path[KC.pi]; if (!wp) return true; turnToward(K.g, wp.x, wp.z, dt * 7); const left = moveToward(K.g, wp.x, wp.z, speed, dt);
+  if (left < 0.1) KC.pi++; return KC.pi >= KC.path.length; }
+function canSee() { if (hidden) return false; const h = getHead(), p = K.g.position, dx = h.x - p.x, dz = h.z - p.z, d = Math.hypot(dx, dz);
+  if (d > 10 || !los(p, h)) return false; if (d < 1.7) return true;
+  return (dx * Math.sin(K.g.rotation.y) + dz * Math.cos(K.g.rotation.y)) / d > 0.57; }      // ~110° field of view
+function startHunt() { if (K.state !== 'off') return false; const dist = bfs(playerCell());
+  const cand = [...dist].filter(([k, v]) => v >= 6).map(([k]) => k.split(',').map(Number)).filter(([c, r]) => !'EDL'.includes(MAP[r][c]) && !inView({ x: cx(c), y: 1.5, z: cz(r) }, 0.3));
+  if (!cand.length) return false; const [c, r] = cand[Math.floor(Math.random() * cand.length)];
+  K.g.position.set(cx(c), 0, cz(r)); K.g.rotation.y = rand(0, 6.28); K.g.visible = true; K.state = 'patrol'; K.mode = 'walk'; K.detect = 0;
+  Object.assign(KC, { t0: sim.t, until: sim.t + rand(55, 80), path: [], pauseUntil: sim.t + 0.5, last: null, lastSawT: -9, locker: null, lockerPath: false, nextBreath: sim.t + 2, moved: false });
+  sfxSlam(at(cx(c), 1.5, cz(r))); logEvent('carnicero', 'entra'); return true; }
+function patrolTarget() { const maxV = Math.max(1, 6 - Math.floor((sim.t - KC.t0) / 10));   // the search closes in on where you are
+  const near = [...bfs(playerCell())].filter(([k, v]) => v >= Math.min(2, maxV) && v <= maxV), all = [...bfs(cellOf(K.g.position.x, K.g.position.z))].filter(([k, v]) => v >= 3);
+  const src = Math.random() < 0.7 && near.length ? near : all.length ? all : near; const [k] = src[Math.floor(Math.random() * src.length)]; const [c, r] = k.split(',').map(Number);
+  return { x: cx(c), z: cz(r) }; }
+function endHunt(why) { if (K.state === 'off') return; K.state = 'off'; K.g.visible = false; logEvent('carnicero_fin', why); endMajor('hunt'); }
+function catchPlayer() { if (hidden) toggleHide('sacado');
+  const h = getHead(), f = forwardXZ().clone(); K.g.position.set(h.x + f.x * 1.25, 0, h.z + f.z * 1.25); faceTo(K.g, h);
+  K.state = 'attack'; K.mode = 'attack'; KC.until = sim.t + 1.1; sfxRoar(at(h.x + f.x, 1.9, h.z + f.z)); sfxStinger(); flashRed(0.85); buzzAll(1, 600); heartReact(22); logEvent('attack', 'carnicero'); }
+const dragged = () => K.state === 'attack' || K.state === 'drag';
+function dragAway() { const d = bfs(playerCell()); const cand = [...d].filter(([k, v]) => v >= 3 && v <= 6).map(([k]) => k.split(',').map(Number)).filter(([c, r]) => !'EDL'.includes(MAP[r][c]));
+  const pick = cand[Math.floor(Math.random() * cand.length)] || playerCell(); placeHead(cx(pick[0]), cz(pick[1])); logEvent('dragged', key(...pick)); }
+function chaserStep(dt) {
+  if (K.state === 'off') return;
+  const h = getHead(), p = K.g.position, d = Math.hypot(h.x - p.x, h.z - p.z), sees = !dragged() && canSee();
+  if (sees) { KC.last = { x: h.x, z: h.z }; KC.lastSawT = sim.t; }
+  if (K.state === 'patrol' || K.state === 'search' || K.state === 'leave') {
+    if (sees) K.detect += dt * (d < 1.7 ? 3 : 1 / (0.35 + 0.11 * d)) * (1 + 0.5 * hrAro); else K.detect = Math.max(0, K.detect - dt * 0.4);
+    if (K.detect >= 1) { K.state = 'alert'; K.mode = 'alert'; KC.alertUntil = sim.t + 0.6; KC.path = []; sfxGrowl(at(p.x, 1.9, p.z)); heartReact(15); logEvent('carnicero', 'te_vio'); } }
+  switch (K.state) {
+    case 'patrol': {
+      if (sim.t > KC.until) { K.state = 'leave'; const far = [...bfs(playerCell())].sort((a, b) => b[1] - a[1])[0][0].split(',').map(Number); setPath(cx(far[0]), cz(far[1])); break; }
+      if (sim.t < KC.pauseUntil) { K.mode = 'look'; break; }
+      if (KC.pi >= KC.path.length) { const t = patrolTarget(); setPath(t.x, t.z); }
+      K.mode = 'walk'; if (followPath(1.05, dt)) { KC.pauseUntil = sim.t + rand(1, 3); KC.path = []; KC.pi = 0; }
+      break; }
+    case 'alert': turnToward(K.g, h.x, h.z, dt * 10); if (sim.t > KC.alertUntil) { K.state = 'chase'; K.mode = 'run'; KC.nextRepath = 0; } break;
+    case 'chase': {
+      const sp = playerSpeed() * (0.9 + 0.25 * hrAro);     // calm: a little slower than you; panicking: faster than you
+      if (hidden && !KC.locker && sim.t - KC.lastSawT < 1.0) { KC.locker = hidden; logEvent('carnicero', 'te_vio_esconderte'); }
+      if (KC.locker) { if (!KC.lockerPath) { setPath(KC.locker.out.x, KC.locker.out.z); KC.lockerPath = true; } if (followPath(sp, dt)) catchPlayer(); break; }
+      if (sees && d < 5) { turnToward(K.g, h.x, h.z, dt * 10); moveToward(K.g, h.x, h.z, sp, dt); KC.path = []; KC.pi = 0; }
+      else { if (sim.t > KC.nextRepath && KC.last) { KC.nextRepath = sim.t + 0.3; setPath(KC.last.x, KC.last.z); } followPath(sp, dt); }
+      if (!sees && sim.t - KC.lastSawT > 1.0) { K.state = 'search'; K.mode = 'walk'; KC.searchUntil = sim.t + rand(7, 10); KC.pauseUntil = 0;
+        const lc = cellOf(KC.last.x, KC.last.z); KC.search = [...bfs(lc)].filter(([k, v]) => v >= 1 && v <= 2).sort(() => Math.random() - 0.5).slice(0, 3).map(([k]) => { const [c, r] = k.split(',').map(Number); return { x: cx(c), z: cz(r) }; });
+        setPath(KC.last.x, KC.last.z); logEvent('carnicero', 'te_perdio'); }
+      if (d < 1.0 && !hidden) catchPlayer();
+      break; }
+    case 'search': {
+      if (sim.t < KC.pauseUntil) { K.mode = 'look'; }
+      else { K.mode = 'walk'; if (followPath(1.5, dt)) { if (KC.search.length) { const s = KC.search.shift(); setPath(s.x, s.z); } KC.pauseUntil = sim.t + rand(0.8, 1.8); } }
+      if (sim.t > KC.searchUntil) { K.state = 'patrol'; KC.path = []; KC.pi = 0; KC.until = Math.max(KC.until, sim.t + 12); logEvent('carnicero', 'vuelve_a_patrullar'); }
+      break; }
+    case 'leave': K.mode = 'walk'; if (followPath(1.2, dt)) endHunt('se_fue'); break;
+    case 'attack': faceTo(K.g, h); if (sim.t > KC.until) { K.state = 'drag'; K.mode = 'idle'; KC.until = sim.t + 1.8; veilTarget = 1; K.g.visible = false; KC.moved = false; } return;
+    case 'drag': if (sim.t > KC.until - 0.9 && !KC.moved) { KC.moved = true; dragAway(); toast('Te arrastró a otra parte', 2.5); } if (sim.t > KC.until) { veilTarget = 0; endHunt('atrapado'); } return;
+  }
+  // he warns you he is near, without always telling you where
+  const moving = K.mode === 'walk' || K.mode === 'run';
+  if (moving) { KC.stepAcc += dt; if (KC.stepAcc > (K.mode === 'run' ? 0.33 : 0.58)) { KC.stepAcc = 0; if (K.mode === 'run' || d < 7 || Math.random() > 0.35) sfxHeavyStep(at(p.x, 0.05, p.z), K.mode === 'run' ? 1.3 : 0.9); } }
+  if (sim.t > KC.nextBreath && d < 12) { KC.nextBreath = sim.t + rand(2.5, 4.5) * (K.mode === 'run' ? 0.5 : 1); sfxBreathDeep(at(p.x, 1.9, p.z)); }
+  if (K.state === 'patrol' && Math.random() < dt * 0.07) sfxScrape(at(p.x, 0.4, p.z));
+}
+
+/* ---------- fixed scares: same places for every player (they wait if a big event is running) ---------- */
 const SCARES = {
-  1: () => { flickerUntil = sim.t + 2.5; sfxScream(at(cx(9), 1.5, cz(1))); },
-  2: () => { showApparition(8, 1.6); sfxWhisper(); },
+  1: () => { flickerUntil = sim.t + 2.5; const h = getHead(); sfxScream(at(h.x + 8, 1.5, h.z)); },
+  2: () => { if (startScream('ahead', 1.4)) sfxWhisper(); },
   3: () => { const h = getHead(), f = forwardXZ(); sfxSlam(at(h.x - f.x * 2, 1.5, h.z - f.z * 2)); blackoutUntil = sim.t + 1.2; },
-  4: () => { if (showApparition(1.2, 0.7)) { sfxStinger(); flashRed(0.55); } },
-  5: () => { blackoutUntil = sim.t + 2.5; sfxWhisper(); setTimeout(() => { if (running) { showApparition(2.5, 1.0); sfxStinger(); } }, 2400); },
+  4: () => { startScream('front'); },
+  5: () => { blackoutUntil = sim.t + 2.2; sfxWhisper(); setTimeout(() => { if (running && startScream('front', 0.9)) sfxStinger(); }, 2200); },
 };
 function fireScare(tr) { tr.fired = true; SCARES[tr.id](); logEvent('scare', 'S' + tr.id); setTimeout(() => heartReact(rand(18, 30)), 400); }
 
-/* ================= MONSTERS ================= */
-const S = { name: 'sonriente', g: new THREE.Group() }; S.rig = buildSonriente(S.g); S.g.visible = false; scene.add(S.g);
-const R = { name: 'reptante', g: new THREE.Group() }; R.rig = buildReptante(R.g); R.g.visible = false; scene.add(R.g);
-let scn = null;      // the scare scenario currently playing
-const anim = { S: 'idle', R: 'idle' };
-function hide(m) { m.g.visible = false; }
-function moveToward(m, tx, tz, speed, dt) { const p = m.g.position, dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz); if (d < 0.01) return d;
-  const st = Math.min(d, speed * dt), nx = p.x + dx / d * st, nz = p.z + dz / d * st; if (!blocked(nx, p.z, 0.25)) p.x = nx; if (!blocked(p.x, nz, 0.25)) p.z = nz; return d; }
-function cornerSpot(minD, maxD) {   // a hidden cell right around a corner from somewhere you can see
-  const h = getHead(), f = forwardXZ(), out = [];
-  for (const c of FREE) { if (sealed.has(key(c.c, c.r)) || c.ch === 'E' || c.ch === 'D') continue; const d = Math.hypot(c.x - h.x, c.z - h.z); if (d < minD || d > maxD || los(h, c)) continue;
-    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { if (!isFreeCell(c.c + dc, c.r + dr)) continue; const n = { x: cx(c.c + dc), z: cz(c.r + dr) };
-      if (los(h, n) && Math.hypot(n.x - h.x, n.z - h.z) > 1.5) { const ahead = ((c.x - h.x) * f.x + (c.z - h.z) * f.z) / d; out.push({ c, n, score: ahead + Math.random() * 0.8 }); break; } } }
-  out.sort((a, b) => b.score - a.score); return out[0] || null;
+/* ================= DIRECTOR OF FEAR =================
+   Explore -> tension builds -> one peak event (hunt, screamer or ceiling drop) -> relief -> explore ...
+   Only one peak at a time, silence before screamers, variable odds and cool-downs so nothing repeats on a pattern. */
+const DIR = { phase: 'explore', T: 0, trigger: 0.85, until: 0, major: '', prev: '', last: { hunt: -999, scream: -999, hang: -999 }, nextCeil: Infinity, nextAmb: Infinity };
+const majorActive = () => K.state !== 'off' || (DAMA.state !== 'off' && DS.major) || (R.state !== 'off' && RC.kind === 'hang');
+function startMajor() {
+  const w = { hunt: sim.t - DIR.last.hunt > 50 ? 1.3 : 0, scream: sim.t - DIR.last.scream > 38 ? 1.25 : 0, hang: sim.t - DIR.last.hang > 30 ? 0.9 : 0 };
+  if (DIR.prev && w[DIR.prev]) w[DIR.prev] *= 0.35;
+  const pick = pickW(w); if (!pick) { DIR.T = 0.7; return; }
+  if (R.state !== 'off') endCeiling('cede_el_paso'); if (DAMA.state !== 'off') endDama('cede_el_paso');
+  let ok = false;
+  if (pick === 'hunt') ok = startHunt();
+  else if (pick === 'scream') { const m = pickW({ ahead: 1, corner: 1.2, behind: 0.9 }); ok = startScream(m) || startScream('ahead') || startScream('behind'); if (ok) DS.major = true; }
+  else ok = startCeiling('hang');
+  if (ok) { DIR.major = pick; DIR.prev = pick; DIR.T = 0.1; DIR.trigger = rand(0.65, 1.0); logEvent('director', 'pico:' + pick); if (pick === 'scream') silence(rand(1.5, 3)); }
+  else DIR.T = 0.8;
 }
-function spotBehind(ds, sides = false) { const h = getHead(), f = forwardXZ().clone(), dirs = [[-f.x, -f.z]];
-  if (sides) dirs.push([-f.z * 0.7 - f.x * 0.7, f.x * 0.7 - f.z * 0.7], [f.z * 0.7 - f.x * 0.7, -f.x * 0.7 - f.z * 0.7], [-f.z, f.x], [f.z, -f.x]);   // behind, behind-left/right, left/right
-  for (const [ux, uz] of dirs) for (const d of ds) { const x = h.x + ux * d, z = h.z + uz * d; if (!blocked(x, z, 0.3) && los(h, { x, z })) return { x, z }; } return null; }
-
-const SCENARIOS = {
-  // 1. waits behind a corner on your way; when you turn it, it is right there
-  ambush() { const sp = cornerSpot(3, 9); if (!sp) return null; S.g.position.set(sp.c.x, 0, sp.c.z); faceTo(S.g, sp.n); S.g.visible = true; anim.S = 'idle';
-    return { type: 'ambush', m: S, phase: 'wait', until: sim.t + 35, quiet: false }; },
-  // 2. leans out from a corner far away; look at it or come closer and it vanishes... then breathes behind you
-  peek() { const sp = cornerSpot(5.5, 13); if (!sp) return null; const dx = sp.n.x - sp.c.x, dz = sp.n.z - sp.c.z;
-    S.g.position.set(sp.c.x + dx * 0.36, 0, sp.c.z + dz * 0.36); faceTo(S.g, getHead()); S.rig.peekLean = Math.random() < 0.5 ? 0.5 : -0.5; S.g.visible = true; anim.S = 'peek';
-    sfxCreak(atV(S.g.position, 2)); return { type: 'peek', m: S, phase: 'peek', until: sim.t + 12, stare: 0 }; },
-  // 3. every time the light dies it is closer, as long as you keep looking at it
-  stalk() { const steps = [9, 6.5, 4.6, 3.0, 1.5]; return { type: 'stalk', m: S, phase: 'dark', step: 0, steps, misses: 0, until: sim.t + 0.4 }; },
-  // 4. crawls across the ceiling toward you and drops in front of your face
-  ceiling() { const sp = spotBehind([5, 4, 3.2]); if (!sp) return null; R.g.position.set(sp.x, 0, sp.z); R.rig.flip.rotation.z = Math.PI; R.rig.flip.position.y = WALL_H; R.g.visible = true; anim.R = 'crawl';
-    return { type: 'ceiling', m: R, phase: 'crawl', until: sim.t + 25, next: 0 }; },
-  // 5. crawls up behind you on the floor; turn around in time
-  behind() { const sp = spotBehind([4.2, 3.4, 2.6]); if (!sp) return null; R.g.position.set(sp.x, 0, sp.z); R.rig.flip.rotation.z = 0; R.rig.flip.position.y = 0; R.g.visible = true; anim.R = 'crawl';
-    const win = 4.6 - 1.4 * hrAro, h = getHead(); return { type: 'behind', m: R, phase: 'crawl', until: sim.t + win, speed: Math.hypot(sp.x - h.x, sp.z - h.z) / win, next: 0 }; },
-  // 6. bursts out from behind a corner on all fours
-  burst() { const sp = cornerSpot(3.5, 9); if (!sp) return null; R.g.position.set(sp.c.x, 0, sp.c.z); R.rig.flip.rotation.z = 0; R.rig.flip.position.y = 0; faceTo(R.g, sp.n); R.g.visible = true; anim.R = 'idle';
-    return { type: 'burst', m: R, phase: 'wait', until: sim.t + 35, quiet: false }; },
-};
-const WEIGHTS = { ambush: 2.2, peek: 1.5, stalk: 1.4, ceiling: 2.2, behind: 1.0, burst: 1.6 };
-const dir = { next: Infinity, last: '' }, amb2 = { next: Infinity };
-const interval = () => lerp(26, 8, hrAro);
-function scheduleNext() { dir.next = sim.t + interval() * rand(0.8, 1.2); }
-function startScenario(type) { const s = SCENARIOS[type](); if (!s) return false; scn = s; s.t0 = sim.t; logEvent('monster_spawn', type); return true; }
-function endScenario(why) { if (!scn) return; logEvent('monster_end', scn.type + ':' + why); hide(S); hide(R); R.rig.flip.rotation.z = 0; R.rig.flip.position.y = 0; scn = null; scheduleNext(); }
-function monsterDirector() {
-  if (!running || !algo.baseline || scn || app.visible) return;
-  if (!isFinite(dir.next)) { dir.next = sim.t + 10; return; }
-  const want = interval() * 1.2; if (dir.next - sim.t > want) dir.next = sim.t + want * rand(0.7, 1);   // heart jumped: come sooner
-  if (sim.t < dir.next) return;
-  const opts = Object.keys(WEIGHTS).filter(k => k !== dir.last), tot = opts.reduce((a, k) => a + WEIGHTS[k], 0);
-  let r = Math.random() * tot, pick = opts[0]; for (const k of opts) { r -= WEIGHTS[k]; if (r <= 0) { pick = k; break; } }
-  if (startScenario(pick)) dir.last = pick; else if (!startScenario(opts.find(k => k !== pick && SCENARIOS[k]) )) dir.next = sim.t + 3;
-}
-
-function attack(m) {   // jump scare in your face; then it drags you somewhere else in the dark
-  const h = getHead(), f = forwardXZ().clone(); m.g.position.set(h.x + f.x * 0.62, 0, h.z + f.z * 0.62); m.g.visible = true; faceTo(m.g, h);
-  if (m === R) { R.rig.flip.rotation.z = 0; R.rig.flip.position.y = 0; anim.R = 'attack'; } else anim.S = 'reach';
-  sfxStinger(); sfxScream(); flashRed(0.85); buzzAll(1, 500); heartReact(20); logEvent('attack', m.name + ':' + scn.type);
-  scn.phase = 'attack'; scn.until = sim.t + 1.1;
-}
-const dragged = () => scn && (scn.phase === 'attack' || scn.phase === 'drag');
-function dragAway() { const d = bfs(playerCell()); const cand = [...d].filter(([k, v]) => v >= 3 && v <= 6).map(([k]) => k.split(',').map(Number));
-  const pick = cand[Math.floor(Math.random() * cand.length)] || playerCell(); const h = getHead();
-  dolly.position.x += cx(pick[0]) - h.x; dolly.position.z += cz(pick[1]) - h.z; logEvent('dragged', key(...pick)); }
-
-function scenarioStep(dt) {
-  if (!scn) return;
-  const h = getHead(), s = scn, m = s.m, p = m.g.position, d = Math.hypot(h.x - p.x, h.z - p.z);
-  if (s.phase === 'attack') { if (m === S) faceTo(S.g, h); if (sim.t > s.until) { s.phase = 'drag'; s.until = sim.t + 1.8; veilTarget = 1; hide(m); } return; }
-  if (s.phase === 'drag') { if (sim.t > s.until - 0.9 && !s.moved) { s.moved = true; dragAway(); toast('Te arrastró a otra parte', 2.5); }
-    if (sim.t > s.until) { veilTarget = 0; endScenario('ataque'); } return; }
-  switch (s.type) {
-    case 'ambush': case 'burst': {
-      const seen = los(p, h), fast = s.type === 'burst';
-      if (s.phase === 'wait') {
-        if (!s.quiet && d < 6 && !seen) { s.quiet = true; silence(2.5); }
-        if (seen && d < (fast ? 4.5 : 3.2)) { s.phase = 'lunge'; sfxStinger(); (fast ? sfxShriek : sfxScream)(atV(p, 1.2)); flashRed(0.35); heartReact(15); logEvent('monster', s.type + '_reveal'); if (m === R) anim.R = 'burst'; else anim.S = 'run'; }
-        else if (seen && !fast) { s.phase = 'chase'; s.until = sim.t + 1.2; anim.S = 'twitch'; sfxScream(atV(p, 2)); logEvent('monster', 'ambush_seen_far'); }
-        else if (sim.t > s.until) endScenario('nunca_llegaste');
-      } else if (s.phase === 'lunge') { moveToward(m, h.x, h.z, fast ? 6.5 : 7, dt); faceTo(m.g, h); if (d < 0.95) attack(m); }
-      else if (s.phase === 'chase') {
-        if (sim.t < s.until) { faceTo(m.g, h); break; } anim.S = 'run';
-        if (seen) { s.last = { x: h.x, z: h.z }; moveToward(m, h.x, h.z, 2.4 + 1.3 * hrAro, dt); faceTo(m.g, h); if (sim.t > (s.ns || 0)) { s.ns = sim.t + 0.24; sfxStep(atV(p, 0.1), 1, 260); } if (d < 0.95) attack(m); }
-        else { s.phase = 'search'; s.until = sim.t + 2.5; anim.S = 'idle'; }
-      } else if (s.phase === 'search') { moveToward(m, s.last.x, s.last.z, 1.0, dt); if (seen && d < 6) { s.phase = 'chase'; s.until = sim.t; } else if (sim.t > s.until) endScenario('escapaste'); }
-      break; }
-    case 'peek': {
-      if (s.phase === 'peek') { faceTo(S.g, h);
-        if (lookingAtXZ(p, 0.95)) s.stare += dt;
-        if (s.stare > 0.35 || d < 5 || sim.t > s.until) { hide(S); sfxCreak(atV(p, 1.5)); s.phase = 'gone'; s.until = sim.t + rand(2.5, 5); logEvent('monster', 'peek_hid'); } }
-      else if (s.phase === 'gone') { if (sim.t > s.until) { const sp = spotBehind([1.25, 0.95], true); if (!sp) { if (showApparition(1.2, 0.6)) { sfxStinger(); flashRed(0.5); } endScenario('sin_lugar'); break; }
-          S.g.position.set(sp.x, 0, sp.z); faceTo(S.g, h); S.g.visible = true; anim.S = 'idle'; silence(2); sfxBreath(atV(S.g.position, 1.9), 3); s.phase = 'behind'; s.until = sim.t + 4.6 - 1.4 * hrAro; logEvent('monster', 'behind_you'); } }
-      else if (s.phase === 'behind') { faceTo(S.g, h);
-        if (lookingAtXZ(p, 0.7)) { anim.S = 'reach'; sfxStinger(); flashRed(0.5); heartReact(15); logEvent('monster', 'turned_in_time'); s.phase = 'vanish'; s.until = sim.t + 0.45; }
-        else if (sim.t > s.until) attack(S); }
-      else if (s.phase === 'vanish') { if (sim.t > s.until) endScenario('volteaste'); }
-      break; }
-    case 'stalk': {
-      if (s.phase === 'dark') { blackoutUntil = Math.max(blackoutUntil, sim.t + 0.05);
-        if (sim.t > s.until) { const { f, d: free } = freeAhead(); const k = Math.min(s.steps[s.step], free);
-          if (k < 0.9 && s.step < s.steps.length - 1) { endScenario('sin_lugar'); break; }
-          S.g.position.set(h.x + f.x * k, 0, h.z + f.z * k); faceTo(S.g, h); S.g.visible = true; anim.S = s.step >= 3 ? 'twitch' : 'idle';
-          if (s.step === s.steps.length - 1) { attack(S); break; }
-          s.phase = 'show'; s.until = sim.t + rand(1.1, 1.5); flickerUntil = sim.t + 0.6; sfxWhisper(atV(S.g.position, 2), 1.2); } }
-      else if (s.phase === 'show') { faceTo(S.g, h);
-        if (sim.t > s.until) { const looked = lookingAtXZ(p, 0.75);
-          if (looked) { s.step++; s.misses = 0; } else s.misses++;
-          if (s.misses >= 3) { hide(S); endScenario('dejaste_de_mirar'); break; }
-          hide(S); s.phase = 'dark'; s.until = sim.t + (s.step === s.steps.length - 1 ? 0.9 : 0.35); if (s.step === s.steps.length - 1) silence(1.2); sfxCreak(); } }
-      break; }
-    case 'ceiling': {
-      const target = { x: h.x + forwardXZ().x * 0.7, z: h.z + forwardXZ().z * 0.7 };
-      if (s.phase === 'crawl') { moveToward(R, target.x, target.z, 1.0 + 0.8 * hrAro, dt); faceTo(R.g, target);
-        if (sim.t > s.next) { s.next = sim.t + rand(0.14, 0.26); sfxScratch(at(p.x, WALL_H, p.z), clamp(1.2 / Math.max(0.8, d), 0.2, 1)); }
-        const lookUp = inView({ x: p.x, y: WALL_H - 0.3, z: p.z }, 0.8);
-        if (lookUp && d > 2.2) { s.phase = 'flee'; s.until = sim.t + 0.9; anim.R = 'flee'; sfxHiss(at(p.x, WALL_H, p.z)); logEvent('monster', 'ceiling_seen'); }
-        else if (Math.hypot(p.x - target.x, p.z - target.z) < 0.45 || d < 1.3 || sim.t > s.until) { s.phase = 'drop'; s.until = sim.t + 0.55; silence(1.2); } }
-      else if (s.phase === 'drop') { if (sim.t > s.until) attack(R); else if (sim.t > s.until - 0.3) { const k = 1 - (s.until - sim.t) / 0.3; R.rig.flip.position.y = WALL_H * (1 - k); R.rig.flip.rotation.z = Math.PI * (1 - k); anim.R = 'drop'; } }
-      else if (s.phase === 'flee') { moveToward(R, p.x + (p.x - h.x) * 3, p.z + (p.z - h.z) * 3, 6, dt); if (sim.t > s.until) endScenario('lo_viste'); }
-      break; }
-    case 'behind': {
-      if (s.phase === 'crawl') { moveToward(R, h.x, h.z, s.speed, dt); faceTo(R.g, h);
-        if (sim.t > s.next) { s.next = sim.t + rand(0.15, 0.26); sfxScratch(atV(p, 0.2), clamp(1.4 / Math.max(0.8, d), 0.2, 1)); }
-        if (lookingAtXZ(p, 0.8) && d < 7) { s.phase = 'flee'; s.until = sim.t + 0.9; anim.R = 'flee'; sfxShriek(atV(p, 0.5)); logEvent('monster', 'behind_seen'); }
-        else if (d < 0.9 || sim.t > s.until) attack(R); }
-      else if (s.phase === 'flee') { moveToward(R, p.x + (p.x - h.x) * 3, p.z + (p.z - h.z) * 3, 6, dt); if (sim.t > s.until) endScenario('lo_viste'); }
-      break; }
-  }
+function endMajor(type, scale = 1) { DIR.last[type] = sim.t; DIR.major = ''; DIR.phase = 'relief'; DIR.until = sim.t + rand(14, 24) * (1 - 0.35 * hrAro) * scale; logEvent('director', 'alivio'); }
+const AMB_W = { stepsPass: 1, knock: 1, scream: 0.6, whisperEar: 1, scratchAbove: 1.3, slamFar: 0.7, breathBehind: 0.9, flicker: 1, blackout: 0.5 };
+function directorStep(dt) {
+  if (!running || !algo.baseline) return;
+  if (!isFinite(DIR.nextCeil)) { DIR.nextCeil = sim.t + rand(5, 10); DIR.nextAmb = sim.t + rand(4, 9); DIR.trigger = rand(0.65, 1.0); }
+  const busy = majorActive();
+  if (!busy) {
+    if (DIR.phase === 'relief') { if (sim.t > DIR.until) DIR.phase = 'explore'; }
+    else { DIR.T += dt * (0.011 + 0.03 * hrAro + (keysTaken ? 0.006 : 0)); DIR.phase = DIR.T > 0.45 ? 'tension' : 'explore'; if (DIR.T >= DIR.trigger) startMajor(); } }
+  if (!majorActive() && DIR.phase !== 'relief' && R.state === 'off' && DAMA.state === 'off' && sim.t > DIR.nextCeil) {
+    startCeiling('sighting'); DIR.nextCeil = sim.t + rand(8, 20) * (1 - 0.45 * hrAro) * (DIR.phase === 'tension' ? 0.7 : 1); }
+  if (sim.t > DIR.nextAmb) { DIR.nextAmb = sim.t + rand(9, 18) * (1 - 0.4 * hrAro) * (DIR.phase === 'relief' ? 1.8 : 1);
+    if (K.state !== 'chase' && DAMA.state === 'off') { const w = { ...AMB_W }; if (hrAro < 0.5) w.blackout = 0; const pick = pickW(w); AMBIENT[pick](); logEvent('ambient', pick); } }
 }
 
 /* ================= FEAR FACTORS THAT FOLLOW THE HEART ================= */
-// --- mannequins that move when you do not look ---
-const MANNEQUIN_CELLS = [[9, 1], [13, 3], [3, 9], [11, 7], [12, 11], [7, 5]];
-const mannequins = MANNEQUIN_CELLS.map(([c, r], i) => { const g = new THREE.Group(); const rig = buildMannequin(g); scene.add(g);
-  const off = (i % 2 ? 1 : -1) * 0.65; g.position.set(cx(c) + (MAP[r][c - 1] === '#' ? -0.6 : 0), 0, cz(r) + (MAP[r - 1][c] === '#' ? -0.6 : off * 0.2));
-  g.rotation.y = rand(0, 6.28); poseMannequin(rig, 0); return { g, rig, lastSeen: 0, nextMove: 0, moved: false }; });
-let mqNext = 0;
-function mannequinStep() {
-  if (!running || !algo.baseline) return;
-  const h = getHead(), every = lerp(20, 6, hrAro), allowed = hrAro < 0.35 ? 1 : hrAro < 0.7 ? 2 : 3;
-  for (const mq of mannequins) {
-    const chest = { x: mq.g.position.x, y: 1.4, z: mq.g.position.z }, seen = inView(chest, 0.5), d = Math.hypot(chest.x - h.x, chest.z - h.z);
-    if (seen) { if (mq.moved && d < 3.2) { sfxCreak(atV(chest, 1.6)); heartReact(6); logEvent('mannequin_close', d.toFixed(1)); } mq.moved = false; mq.lastSeen = sim.t; continue; }
-    if (sim.t - mq.lastSeen < every * 0.6 || sim.t < mq.nextMove || sim.t < mqNext) continue;
-    const near = mannequins.filter(o => o !== mq && Math.hypot(o.g.position.x - h.x, o.g.position.z - h.z) < 6).length, crowd = near >= allowed;
-    const minD = crowd ? 6 : 2.2, maxD = crowd ? 14 : 9 - 5 * hrAro, taken = mannequins.filter(o => o !== mq).map(o => o.g.position);
-    const cand = FREE.filter(c => { const dd = Math.hypot(c.x - h.x, c.z - h.z); return dd > minD && dd < maxD && !sealed.has(key(c.c, c.r)) && c.ch !== 'E' && c.ch !== 'D' && !inView({ x: c.x, y: 1.4, z: c.z }, 0.35) && taken.every(t => Math.hypot(t.x - c.x, t.z - c.z) > 1); })
-      .sort((a, b) => Math.hypot(a.x - h.x, a.z - h.z) - Math.hypot(b.x - h.x, b.z - h.z)).slice(0, 4);
-    mq.nextMove = sim.t + every * rand(0.8, 1.2); if (!cand.length) continue; mqNext = sim.t + every * 0.8;
-    const c = cand[Math.floor(Math.random() * cand.length)]; mq.g.position.set(c.x + rand(-0.5, 0.5), 0, c.z + rand(-0.5, 0.5)); faceTo(mq.g, h); poseMannequin(mq.rig, hrAro); mq.moved = true;
-    logEvent('mannequin_move', key(c.c, c.r));
-  }
-}
 // --- blood and messages that appear on the walls behind you ---
 const MESSAGES = ['TE OIGO LATIR', 'NO CORRAS', 'DETRÁS DE TI', 'TU CORAZÓN TE DELATA', 'MÁS RÁPIDO', 'YA CASI', 'QUÉDATE'];
 function bloodCanvas(text) { const cv = makeCanvas(512, 256), g = cv.getContext('2d'); g.fillStyle = 'rgba(120,6,10,0.92)'; g.strokeStyle = 'rgba(90,4,8,0.9)';
@@ -902,7 +1114,7 @@ function shutterStep(dt) {
     const vert = isFreeCell(c.c, c.r - 1) && isFreeCell(c.c, c.r + 1) && !isFreeCell(c.c - 1, c.r) && !isFreeCell(c.c + 1, c.r);
     return (horiz || vert) && dd > 2.4 && dd < 9 && behind < -0.1 && !inView({ x: c.x, y: 1.5, z: c.z }, 0.3); });
   for (const c of cand.sort(() => Math.random() - 0.5)) { const k = key(c.c, c.r), reach = bfs(pc, k); if (!need.every(n => reach.has(n))) continue;
-    if ([S, R].some(m => m.g.visible && Math.hypot(m.g.position.x - c.x, m.g.position.z - c.z) < 1.6)) continue;
+    if ([DAMA, R, K].some(m => m.g.visible && Math.hypot(m.g.position.x - c.x, m.g.position.z - c.z) < 1.6)) continue;
     sealed.add(k); shut.cell = k; shut.until = sim.t + 35; shut.drop = 0; shutter.visible = true;
     const horiz = isFreeCell(c.c - 1, c.r); shutter.rotation.y = horiz ? Math.PI / 2 : 0; shutter.position.set(c.x, WALL_H * 1.5, c.z);
     sfxSlam(at(c.x, 1.5, c.z)); heartReact(8); logEvent('shutter', k); return; }
@@ -916,18 +1128,9 @@ const AMBIENT = {
   scratchAbove() { const h = getHead(); for (let i = 0; i < 6; i++) setTimeout(() => sfxScratch(at(h.x + rand(-1, 1), WALL_H, h.z + rand(-1, 1)), 0.7), i * 180); },
   slamFar() { const h = getHead(), a = rand(0, 6.28); sfxSlam(at(h.x + Math.cos(a) * 9, 1.5, h.z + Math.sin(a) * 9)); },
   breathBehind() { const h = getHead(), f = forwardXZ(); sfxBreath(at(h.x - f.x * 0.8, h.y, h.z - f.z * 0.8), 2); },
-  glimpse() { if (showApparition(10, 0.5)) sfxCreak(); },
   flicker() { flickerUntil = sim.t + 1.6; },
   blackout() { blackoutUntil = sim.t + 1.4; const h = getHead(); sfxBreath(at(h.x + rand(-1, 1), h.y, h.z + rand(-1, 1)), 1); },
 };
-function ambientStep() {
-  if (!running || !algo.baseline || scn || app.visible) return;
-  if (!isFinite(amb2.next)) { amb2.next = sim.t + 5; return; }
-  if (sim.t < amb2.next) return;
-  amb2.next = sim.t + lerp(16, 6, hrAro) * rand(0.7, 1.3);
-  const pool = Object.keys(AMBIENT).filter(k => k !== 'blackout' || hrAro > 0.5), pick = pool[Math.floor(Math.random() * pool.length)];
-  AMBIENT[pick](); logEvent('ambient', pick);
-}
 
 /* ================= ATMOSPHERE ================= */
 const C_WARM = new THREE.Color(0xfff1d6), C_RED = new THREE.Color(0xff5a3c), C_BULB = new THREE.Color(0xffc98a), C_BULB_RED = new THREE.Color(0xff2a18);
@@ -942,10 +1145,13 @@ function atmosphere(dt) {
   bulbs.forEach(b => { const on = !out && Math.random() > flickP * 1.5; b.l.color.copy(C_BULB).lerp(C_BULB_RED, Math.max(0, a - 0.35) * 1.4); b.b.material.color.copy(b.l.color); b.l.intensity = on ? b.base * (1 - 0.65 * a) : 0.1; b.b.visible = on; });
   $('vignette').style.opacity = (Math.max(0, a - 0.3) * 0.8 + pulse * a * 0.25).toFixed(2);
   veil.material.opacity += (veilTarget - veil.material.opacity) * Math.min(1, dt * 5);
-  if (AC) { droneGain.gain.setTargetAtTime(0.10 + a * 0.18, AC.currentTime, 0.5); windGain.gain.setTargetAtTime(0.04 + a * 0.06, AC.currentTime, 0.5);
+  if (AC) { droneGain.gain.setTargetAtTime(0.10 + a * 0.18 + Math.min(1, DIR.T) * 0.06, AC.currentTime, 0.5); windGain.gain.setTargetAtTime(0.04 + a * 0.06, AC.currentTime, 0.5);
     hbGain.gain.setTargetAtTime(0.1 + 0.7 * hrAro, AC.currentTime, 0.4); droneFilter.frequency.setTargetAtTime(160 + a * 420, AC.currentTime, 0.8);
     if (silentUntil && sim.t > silentUntil) { silentUntil = 0; amb.gain.setTargetAtTime(1, AC.currentTime, 0.3); } }
 }
+
+function hideUI() { const near = !hidden && nearLocker(); $('hint').textContent = hidden ? 'E: salir del casillero' : near ? 'E: esconderte en el casillero' : '';
+  $('hint').hidden = !(hidden || near) || renderer.xr.isPresenting; $('hideBtn').hidden = !(hidden || near); $('hideBtn').textContent = hidden ? 'Salir' : 'Esconderse'; }
 
 /* ================= MAIN LOOP ================= */
 let running = false, last = performance.now(), startedAt = 0, keysTaken = 0;
@@ -954,19 +1160,19 @@ function update(dt) {
   if (!running) { atmosphere(dt); return; }
   if (!renderer.xr.isPresenting) { camera.rotation.set(pitch, yaw, 0);
     const fwd = input.f + input.walk - input.b, str = input.r - input.l;
-    if ((fwd || str) && !dragged()) { const sp = 2.0 * dt, sY = Math.sin(yaw), cY = Math.cos(yaw); tryMove((-sY * fwd + cY * str) * sp, (-cY * fwd - sY * str) * sp); } }
+    if ((fwd || str) && !dragged() && !hidden) { const sp = 2.0 * dt, sY = Math.sin(yaw), cY = Math.cos(yaw); tryMove((-sY * fwd + cY * str) * sp, (-cY * fwd - sY * str) * sp); } }
   else vrInput(dt);
   const h = getHead();
   keys.forEach(k => { if (k.taken) return; k.obj.rotation.y += dt * 1.5; k.obj.position.y = 1.1 + Math.sin(sim.t * 2 + k.c) * 0.06;
     if (Math.hypot(h.x - k.obj.position.x, h.z - k.obj.position.z) < 0.9) { k.taken = true; k.obj.visible = false; keysTaken++; $('keyCount').textContent = keysTaken; sfxPickup(); logEvent('key', String(keysTaken));
-      if (keysTaken === 3) { doorOpen = true; toast('Se abrió la puerta de salida'); sfxSlam(at(door.position.x, 1.5, door.position.z)); logEvent('door_open'); } else toast('Llave ' + keysTaken + ' de 3'); } });
+      if (keysTaken === keys.length) { doorOpen = true; toast('Se abrió la puerta de salida'); sfxSlam(at(door.position.x, 1.5, door.position.z)); logEvent('door_open'); } } });
   if (doorOpen && doorLift < WALL_H - 0.2) { doorLift = Math.min(WALL_H - 0.2, doorLift + dt * 1.2); door.position.y = WALL_H / 2 + doorLift; }
   const [c, r] = playerCell();
-  if (!dragged()) for (const tr of triggers) if (!tr.fired && tr.c === c && tr.r === r) fireScare(tr);
+  if (!dragged() && !hidden && !majorActive() && DAMA.state === 'off') for (const tr of triggers) if (!tr.fired && tr.c === c && tr.r === r) fireScare(tr);
   if (doorOpen && c === exitCell[0] && r === exitCell[1]) finish();
-  if (app.visible) { faceTo(app, h); if (sim.t > appUntil) app.visible = false; }
-  scenarioStep(dt); monsterDirector(); ambientStep(); mannequinStep(); decalStep(dt); shutterStep(dt);
-  animSonriente(appRig, app, 'twitch', dt); animSonriente(S.rig, S.g, anim.S, dt); animReptante(R.rig, R.g, anim.R, dt);
+  directorStep(dt); damaStep(dt); ceilingStep(dt); chaserStep(dt); decalStep(dt); shutterStep(dt);
+  animDama(DAMA.rig, DAMA.g, DAMA.mode, dt); animReptante(R.rig, R.g, R.mode, dt); animCarnicero(K.rig, K.g, K.mode, dt);
+  hideUI();
   atmosphere(dt); updateListener(); drawWrist();
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').style.opacity = 0; }
 }
@@ -976,7 +1182,7 @@ function autoBaseline() { if (!algo.baseline && !algo.collecting) { $('baselineB
 function begin() { autoBaseline(); initAudio(); if (AC.state === 'suspended') AC.resume(); $('startScreen').hidden = true; running = true; startedAt = sim.t; logEvent('game_start'); }
 function finish() { running = false; logEvent('escape'); const s = renderer.xr.getSession(); if (s) s.end(); if (document.pointerLockElement) document.exitPointerLock();
   const n = t => events.filter(e => e.type === t).length;
-  $('endStats').textContent = `Tiempo: ${(sim.t - startedAt).toFixed(0)} s · Sustos fijos: ${n('scare')} de 5 · Apariciones: ${n('monster_spawn')} · Veces que te atraparon: ${n('attack')} · Cambios de estado: ${n('state')}.`;
+  $('endStats').textContent = `Tiempo: ${(sim.t - startedAt).toFixed(0)} s · Screamers: ${n('screamer')} · Veces que viste al Reptante: ${n('techo_visto')} · Persecuciones: ${n('carnicero') ? events.filter(e => e.detail === 'te_vio').length : 0} · Te atrapó: ${n('attack')} · Cambios de estado: ${n('state')}.`;
   $('endScreen').hidden = false; }
 $('playBtn').addEventListener('click', begin);
 $('againBtn').addEventListener('click', () => location.reload());
@@ -995,8 +1201,8 @@ function drawWrist() {
   g.fillStyle = ['#39ff88', '#ffb020', '#ff3344'][Math.max(0, st)]; g.font = '600 44px monospace'; g.fillText(label, 300, 100);
   g.fillStyle = '#d9e2de'; g.font = '30px monospace';
   g.fillText(algo.collecting ? 'Quédate quieto…' : algo.baseline ? 'ΔFC ' + (algo.dRel >= 0 ? '+' : '') + Math.round(algo.dRel * 100) + ' %' : '', 24, 170);
-  g.fillText('Llaves ' + keysTaken + '/3', 300, 170);
-  g.fillStyle = '#ff3344'; g.fillRect(24, 190, 464 * level, 8); g.fillStyle = '#7d8b86'; g.font = '26px monospace'; g.fillText('X: simular susto   Y: calmar', 24, 238);
+  g.fillText(hidden ? 'ESCONDIDO' : nearLocker() ? 'A: esconderte' : 'Llave ' + keysTaken + '/1', 300, 170);
+  g.fillStyle = '#ff3344'; g.fillRect(24, 190, 464 * level, 8); g.fillStyle = '#7d8b86'; g.font = '26px monospace'; g.fillText(hidden ? 'A: salir del casillero' : 'X: susto  Y: calma  A: esconderte', 24, 238);
   wristTex.needsUpdate = true;
 }
 (async function () {
@@ -1011,7 +1217,8 @@ function drawWrist() {
 })();
 if (innerWidth < 640) $('collapse').click();
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-window.__latido = { S, R, app, mannequins, decals, shut, sealed, startScenario, get scn() { return scn; }, get level() { return level; }, get hrAro() { return hrAro; }, flashlight, sim, algo, events, keys, triggers, dolly,
+window.__latido = { DAMA, R, K, DS, RC, KC, DIR, lockers, decals, shut, sealed, startScream, startCeiling, startHunt, startMajor, toggleHide, get hidden() { return hidden; },
+  get level() { return level; }, get hrAro() { return hrAro; }, flashlight, sim, algo, events, keys, triggers, dolly,
   tick: (sec, step = 0.02) => { for (let t = 0; t < sec; t += step) update(step); }, setYaw: v => { yaw = v; }, setPitch: v => { pitch = v; }, teleport: (c, r) => { dolly.position.set(cx(c), 0, cz(r)); } };
 </script>
 </body></html>
