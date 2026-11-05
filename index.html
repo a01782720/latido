@@ -123,13 +123,13 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 <div id="flash"></div>
 
 <div id="hud">
-  <div id="keys">Llave <b id="keyCount">0</b>/1</div>
-  <div id="goal">Encuentra la llave y llega a la puerta de SALIDA. Si te persiguen, escóndete en un casillero.</div>
+  <div id="keys">Tarjeta <b id="keyCount">0</b>/1</div>
+  <div id="goal">Encuentra la tarjeta de la morgue y llega a la SALIDA DE EMERGENCIA. Si te persiguen, escóndete en un armario.</div>
 </div>
 <div id="slats" hidden aria-hidden="true"></div>
 <div id="toast"></div>
 <div id="hint" hidden></div>
-<div id="help">WASD / flechas: caminar · arrastrar o clic: mirar · E: esconderte en un casillero · Esc: soltar el ratón · usa audífonos</div>
+<div id="help">WASD / flechas: caminar · arrastrar o clic: mirar · E: esconderte en un armario · Esc: soltar el ratón · usa audífonos</div>
 <button id="walkBtn" aria-label="Avanzar">Avanzar</button>
 <button id="hideBtn" hidden>Esconderse</button>
 
@@ -171,11 +171,11 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   <div class="card">
     <canvas class="trace-line" id="titleTrace" width="840" height="80" aria-hidden="true"></canvas>
     <h1>Lat<em>i</em>do</h1>
-    <p>Una llave y una salida. El edificio escucha tu corazón: entre más se acelera, más se apaga la luz y más cerca están ellos.</p>
+    <p>Un hospital abandonado. Una tarjeta de acceso y una salida. El edificio escucha tu corazón: entre más se acelera, más fallan las luces y más cerca están ellos.</p>
     <ul class="rules">
-      <li>Mira al techo. Siempre. Algo vive ahí arriba.</li>
-      <li>Si ves a una mujer de negro quieta, no te acerques.</li>
-      <li>Si escuchas pasos pesados y respiración, no dejes que te vea. Corre o escóndete en un casillero.</li>
+      <li>Mira al techo. Siempre. Hay un paciente que nunca se fue.</li>
+      <li>Si ves a una enfermera quieta, no te acerques.</li>
+      <li>Si ves la luz de una lámpara frontal y oyes pasos pesados, que no te vea el cirujano. Corre o escóndete en un armario.</li>
     </ul>
     <p>Al empezar, quédate quieto 20 s mientras se mide tu baseline. Usa audífonos.</p>
     <div class="btns">
@@ -242,13 +242,13 @@ renderer.xr.setFoveation(1);
 $('stage').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const FOG = new THREE.Color(0x040405), FOG_HIGH = new THREE.Color(0x160304);
+const FOG = new THREE.Color(0x030505), FOG_HIGH = new THREE.Color(0x160304);
 scene.background = FOG.clone();
 scene.fog = new THREE.FogExp2(FOG.clone(), 0.08);
 const dolly = new THREE.Group(); scene.add(dolly);
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.03, 60);
 camera.rotation.order = 'YXZ'; camera.position.set(0, 1.6, 0); dolly.add(camera);
-const hemi = new THREE.HemisphereLight(0x22282a, 0x050303, 0.3); scene.add(hemi);
+const hemi = new THREE.HemisphereLight(0x1e2a27, 0x050403, 0.3); scene.add(hemi);
 const flashlight = new THREE.SpotLight(0xfff1d6, 55, 18, 0.42, 0.55, 1.6);
 flashlight.position.set(0.15, -0.15, 0); camera.add(flashlight);
 const flTarget = new THREE.Object3D(); flTarget.position.set(0, -0.2, -3); camera.add(flTarget); flashlight.target = flTarget;
@@ -279,12 +279,35 @@ function clothCanvas() { const cv = makeCanvas(256), g = cv.getContext('2d'); g.
   blotches(g, 256, 10, 30, 'rgba(60,8,8,.35)'); return cv; }
 function noiseTex(base, spots, size = 256) { const cv = makeCanvas(size), g = cv.getContext('2d'); g.fillStyle = base; g.fillRect(0, 0, size, size);
   grain(g, size, size, 34); for (const s of spots) blotches(g, size, s.n, s.r, s.c); return texFrom(cv); }
-const wallMat = new THREE.MeshStandardMaterial({ map: noiseTex('#6b6a62', [{ n: 10, r: 40, c: 'rgba(60,40,20,.35)' }, { n: 4, r: 24, c: 'rgba(90,10,10,.25)' }]), roughness: 0.95 });
-const floorTex = (() => { const t = noiseTex('#4a4a46', [{ n: 6, r: 50, c: 'rgba(40,20,10,.35)' }]); const g = t.image.getContext('2d'); g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 3;
-  for (let i = 0; i <= 256; i += 64) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 256); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(256, i); g.stroke(); }
-  t.needsUpdate = true; t.repeat.set(COLS * CELL / 2, ROWS * CELL / 2); return t; })();
-const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.8 });
-const ceilTex = noiseTex('#3a3a36', [{ n: 8, r: 40, c: 'rgba(30,30,20,.4)' }]); ceilTex.repeat.set(COLS, ROWS);
+// hospital: white tiles up to ~1.3 m, peeling hospital-green paint above, water running down from the ceiling
+const wallCv = (() => { const W = 512, H = 704, cv = makeCanvas(W, H), g = cv.getContext('2d'), split = Math.round(H * 0.57), T = 32;
+  g.fillStyle = '#46604f'; g.fillRect(0, 0, W, split); grain(g, W, split, 26); blotches(g, W, 14, 60, 'rgba(25,40,30,.45)');
+  for (let i = 0; i < 14; i++) { const x = rand(0, W), y = rand(0, split * 0.85), w = rand(16, 60), h = rand(10, 40);
+    g.fillStyle = '#5f5d55'; g.beginPath(); for (let k = 0; k < 10; k++) { const a = k / 10 * 6.28; g.lineTo(x + Math.cos(a) * w * rand(0.45, 1), y + Math.sin(a) * h * rand(0.45, 1)); }
+    g.closePath(); g.fill(); g.strokeStyle = 'rgba(15,22,18,.6)'; g.lineWidth = 1.5; g.stroke(); }
+  for (let i = 0; i < 20; i++) { const x = rand(0, W), len = rand(80, split + 160), gr = g.createLinearGradient(0, 0, 0, len);
+    gr.addColorStop(0, 'rgba(70,50,18,.55)'); gr.addColorStop(1, 'rgba(70,50,18,0)'); g.fillStyle = gr; g.fillRect(x, 0, rand(3, 16), len); }
+  g.fillStyle = '#22342b'; g.fillRect(0, split - 10, W, 12);
+  for (let y = split + 2; y < H; y += T) for (let x = 0; x < W; x += T) { const v = rand(-9, 9), miss = Math.random() < 0.03;
+    g.fillStyle = miss ? '#2a2822' : `rgb(${126 + v},${125 + v},${114 + v})`; g.fillRect(x + 1, y + 1, T - 2, T - 2); }
+  g.fillStyle = '#433f36'; for (let y = split + 2; y < H; y += T) g.fillRect(0, y - 1, W, 2); for (let x = 0; x < W; x += T) g.fillRect(x - 1, split + 2, 2, H);
+  for (let i = 0; i < 12; i++) walk(g, rand(0, W), rand(split, H), 14, 9, 'rgba(25,20,15,.65)', 1.2, true);
+  g.save(); g.translate(0, split); blotches(g, W, 10, 40, 'rgba(60,40,15,.35)'); blotches(g, W, 3, 26, 'rgba(80,8,8,.35)'); g.restore();
+  const gr = g.createLinearGradient(0, H - 170, 0, H); gr.addColorStop(0, 'rgba(22,18,10,0)'); gr.addColorStop(1, 'rgba(22,18,10,.8)'); g.fillStyle = gr; g.fillRect(0, H - 170, W, 170);
+  grain(g, W, H, 10); return cv; })();
+const wallMat = new THREE.MeshStandardMaterial({ map: texFrom(wallCv), bumpMap: texFrom(wallCv, 1, 1, false), bumpScale: 0.012, roughness: 0.8 });
+const floorTex = (() => { const cv = makeCanvas(256), g = cv.getContext('2d');      // checkered linoleum, scuffed and stained
+  for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { g.fillStyle = (x + y) % 2 ? '#373a35' : '#62635a'; g.fillRect(x * 64, y * 64, 64, 64); }
+  grain(g, 256, 256, 24); blotches(g, 256, 12, 40, 'rgba(28,22,12,.5)'); blotches(g, 256, 3, 22, 'rgba(70,8,8,.45)');
+  for (let i = 0; i < 34; i++) { g.strokeStyle = 'rgba(12,12,10,.35)'; g.lineWidth = rand(0.5, 2); const x = rand(0, 256), y = rand(0, 256); g.beginPath(); g.moveTo(x, y); g.lineTo(x + rand(-40, 40), y + rand(-8, 8)); g.stroke(); }
+  g.strokeStyle = 'rgba(8,8,6,.5)'; g.lineWidth = 1.5; for (let i = 0; i <= 256; i += 64) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 256); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(256, i); g.stroke(); }
+  const t = texFrom(cv); t.repeat.set(COLS * CELL / 2, ROWS * CELL / 2); return t; })();
+const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.48 });
+const ceilCv = (() => { const cv = makeCanvas(256), g = cv.getContext('2d'); g.fillStyle = '#56554d'; g.fillRect(0, 0, 256, 256); grain(g, 256, 256, 20);   // stained drop-ceiling tiles
+  for (let i = 0; i < 900; i++) { g.fillStyle = 'rgba(18,18,14,.35)'; g.fillRect(rand(0, 256), rand(0, 256), 1.5, 1.5); }
+  blotches(g, 256, 6, 50, 'rgba(85,60,20,.5)'); blotches(g, 256, 4, 24, 'rgba(40,30,10,.55)');
+  g.fillStyle = '#262521'; g.fillRect(0, 0, 256, 5); g.fillRect(0, 128, 256, 5); g.fillRect(0, 0, 5, 256); g.fillRect(128, 0, 5, 256); return cv; })();
+const ceilTex = texFrom(ceilCv); ceilTex.repeat.set(COLS * CELL / 1.2, ROWS * CELL / 1.2);
 const ceilMat = new THREE.MeshStandardMaterial({ map: ceilTex, roughness: 1 });
 
 /* ---------- level ---------- */
@@ -297,27 +320,34 @@ MAP.forEach((row, r) => [...row].forEach((ch, c) => {
   else if (ch === 'D') doorCell = [c, r]; else if (ch === 'E') exitCell = [c, r]; else if (/[1-9]/.test(ch)) triggers.push({ id: +ch, c, r, fired: false }); }));
 const walls = new THREE.InstancedMesh(new THREE.BoxGeometry(CELL, WALL_H, CELL), wallMat, wallCells.length);
 const m4 = new THREE.Matrix4(); wallCells.forEach(([c, r], i) => { m4.makeTranslation(cx(c), WALL_H / 2, cz(r)); walls.setMatrixAt(i, m4); }); scene.add(walls);
-const door = new THREE.Mesh(new THREE.BoxGeometry(0.25, WALL_H, CELL), new THREE.MeshStandardMaterial({ color: 0x5a2a1a, roughness: 0.6, metalness: 0.5 }));
+const door = new THREE.Mesh(new THREE.BoxGeometry(0.25, WALL_H, CELL), new THREE.MeshStandardMaterial({ color: 0x3a4741, roughness: 0.55, metalness: 0.6 }));
 door.position.set(cx(doorCell[0]) - CELL / 2 + 0.2, WALL_H / 2, cz(doorCell[1])); scene.add(door);
 let doorOpen = false, doorLift = 0;
 (function exitSign() { const cv = makeCanvas(256, 96), g = cv.getContext('2d'); g.fillStyle = '#0a7a3a'; g.fillRect(0, 0, 256, 96); g.fillStyle = '#eafff1';
-  g.font = 'bold 54px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('SALIDA', 128, 50);
+  g.font = 'bold 34px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('SALIDA DE', 128, 30); g.fillText('EMERGENCIA', 128, 68);
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.34), new THREE.MeshBasicMaterial({ map: texFrom(cv) }));
   sign.position.set(door.position.x + 0.14, WALL_H - 0.35, door.position.z); sign.rotation.y = Math.PI / 2; scene.add(sign);
   const glow = new THREE.PointLight(0x22ff77, 1.6, 4, 2); glow.position.set(door.position.x + 0.6, WALL_H - 0.5, door.position.z); scene.add(glow); })();
 function glowSprite(color, fog = false) { const cv = makeCanvas(64), g = cv.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
   gr.addColorStop(0, color); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
   return new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), blending: THREE.AdditiveBlending, depthWrite: false, fog })); }
-const keyMat = new THREE.MeshStandardMaterial({ color: 0xc89b3c, emissive: 0x6b4a10, metalness: 0.8, roughness: 0.3 });
+const cardMat = (() => { const cv = makeCanvas(256, 160), g = cv.getContext('2d'); g.fillStyle = '#d9d6cc'; g.fillRect(0, 0, 256, 160); grain(g, 256, 160, 16);
+  g.fillStyle = '#a3141c'; g.fillRect(0, 0, 256, 34); g.fillStyle = '#fff'; g.font = 'bold 21px Arial'; g.fillText('ACCESO RESTRINGIDO', 12, 25);
+  g.fillStyle = '#1b1b1b'; g.font = 'bold 44px Arial'; g.fillText('MORGUE', 14, 92); g.font = '17px Arial'; g.fillText('NIVEL -1 · SOLO PERSONAL', 14, 128);
+  g.fillStyle = '#9a8a40'; g.fillRect(192, 96, 46, 34); blotches(g, 256, 3, 26, 'rgba(110,10,10,.65)');
+  return new THREE.MeshStandardMaterial({ map: texFrom(cv), roughness: 0.4, emissive: 0x2a2a26, emissiveMap: texFrom(cv) }); })();
 keys.forEach(k => { const g = new THREE.Group();
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.025, 8, 16), keyMat);
-  const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.25, 0.03), keyMat); shaft.position.y = -0.2;
-  const bit = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.03, 0.03), keyMat); bit.position.set(0.04, -0.3, 0);
-  const halo = glowSprite('rgba(255,190,80,0.9)'); halo.scale.set(0.9, 0.9, 1);
-  g.add(ring, shaft, bit, halo); g.position.set(cx(k.c), 1.1, cz(k.r)); scene.add(g); k.obj = g; k.taken = false; });
-const bulbs = [[3, 1], [9, 3], [2, 5], [9, 9], [12, 7]].map(([c, r]) => {
-  const l = new THREE.PointLight(0xffc98a, 4, 7, 2); l.position.set(cx(c), WALL_H - 0.3, cz(r)); scene.add(l);
-  const b = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffd7a0 })); b.position.copy(l.position); scene.add(b);
+  const card = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.165, 0.006), cardMat);
+  const clip = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.006, 6, 14), new THREE.MeshStandardMaterial({ color: 0x8a8a84, metalness: 0.8, roughness: 0.3 })); clip.position.y = 0.1;
+  const halo = glowSprite('rgba(255,90,80,0.9)'); halo.scale.set(0.9, 0.9, 1);
+  g.add(card, clip, halo); g.position.set(cx(k.c), 1.1, cz(k.r)); scene.add(g); k.obj = g; k.taken = false; });
+const fixtureMat = new THREE.MeshStandardMaterial({ color: 0x4a4c46, roughness: 0.6, metalness: 0.5 });
+const tubeGeo = mergeGeometries([-0.07, 0.07].map(z => new THREE.CylinderGeometry(0.019, 0.019, 1.15, 8).rotateZ(Math.PI / 2).translate(0, -0.075, z)));
+const housingGeo = new THREE.BoxGeometry(1.25, 0.06, 0.32).translate(0, -0.03, 0);
+const bulbs = [[3, 1], [9, 3], [2, 5], [9, 9], [12, 7]].map(([c, r]) => {   // flickering fluorescent tubes
+  const l = new THREE.PointLight(0xd6f0e2, 4, 7, 2); l.position.set(cx(c), WALL_H - 0.3, cz(r)); scene.add(l);
+  const g = new THREE.Group(); g.position.set(cx(c), WALL_H, cz(r)); g.rotation.y = isFreeCell(c - 1, r) || isFreeCell(c + 1, r) ? 0 : Math.PI / 2;
+  const b = new THREE.Mesh(tubeGeo, new THREE.MeshBasicMaterial({ color: 0xdff5ea })); g.add(new THREE.Mesh(housingGeo, fixtureMat), b); scene.add(g);
   return { l, b, base: 4 }; });
 
 /* ================= CREATURE CRAFT ================= */
@@ -395,22 +425,37 @@ function buildArm(side, skin, sleeve) { // long jointed arm with 5 three-joint f
   return { shoulder, elbow, wrist, fingers };
 }
 
-/* --- La Señora de negro: a tall woman in a torn black dress, long wet black hair over a calm porcelain face with closed eyes.
+/* --- La Enfermera: a tall nurse in an old stained uniform and cap, long wet black hair over a calm porcelain face with closed eyes.
        During the screamer that face tears open: black sockets with red pupils, cracked veined skin, an ear-to-ear grin of needle teeth. --- */
+MAT.uniform = (() => { const cv = stainedCanvas('#4a4843', 9), g = cv.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 256);
+  gr.addColorStop(0.55, 'rgba(25,20,14,0)'); gr.addColorStop(1, 'rgba(25,20,14,.65)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+  return new THREE.MeshStandardMaterial({ map: texFrom(cv, 2, 1), bumpMap: texFrom(cv, 2, 1, false), bumpScale: 0.01, roughness: 0.9, side: THREE.DoubleSide }); })();
+MAT.apronN = new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#504e48', 14), 1, 1), roughness: 0.9, side: THREE.DoubleSide });
+MAT.stocking = new THREE.MeshStandardMaterial({ color: 0x15110f, roughness: 0.6 });
+MAT.shoe = new THREE.MeshStandardMaterial({ color: 0x0a0908, roughness: 0.35 });
+MAT.capN = (() => { const cv = makeCanvas(128, 64), g = cv.getContext('2d'); g.fillStyle = '#7d7a72'; g.fillRect(0, 0, 128, 64); grain(g, 128, 64, 20);
+  g.fillStyle = '#7a1015'; g.fillRect(58, 14, 12, 36); g.fillRect(46, 26, 36, 12); return new THREE.MeshStandardMaterial({ map: texFrom(cv), roughness: 0.85 }); })();
 MAT.faceCalm = (() => { const cv = skinCanvas('#a39889', 5, 0, 'rgba(140,95,90,.2)'); return new THREE.MeshStandardMaterial({ map: texFrom(cv), roughness: 0.5, emissive: 0x0c0a08 }); })();
 MAT.faceHorror = (() => { const cv = skinCanvas('#8e8172', 46, 34, 'rgba(70,15,25,.5)'); return new THREE.MeshStandardMaterial({ map: texFrom(cv), bumpMap: texFrom(cv, 1, 1, false), bumpScale: 0.006, roughness: 0.5, emissive: 0x150b09 }); })();
 MAT.brow = new THREE.MeshStandardMaterial({ color: 0x2a1f1b, roughness: 0.9 });
 function buildDama(root) {
-  const prof = []; for (let i = 0; i <= 26; i++) { const t = i / 26; prof.push(new THREE.Vector2(0.11 + 0.44 * Math.pow(1 - t, 1.7) + 0.02 * Math.sin(t * 11), t * 1.74)); }
+  // knee-length uniform: flared skirt, cinched waist, narrow shoulders
+  const prof = [[0.25, 0.52], [0.24, 0.66], [0.215, 0.84], [0.185, 1.0], [0.158, 1.12], [0.152, 1.17], [0.168, 1.3], [0.178, 1.42], [0.168, 1.54], [0.14, 1.64], [0.085, 1.71], [0.05, 1.74]].map(([r, y]) => new THREE.Vector2(r, y));
   const geo = new THREE.LatheGeometry(prof, 30); const p = geo.attributes.position;
-  for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), a = Math.atan2(x, z), k = 1 - y / 1.74;
-    const f = 1 + 0.1 * Math.sin(a * 9 + y * 3) * k + rand(-0.03, 0.03) * k; p.setX(i, x * f); p.setZ(i, z * f);
-    if (y < 0.02) p.setY(i, Math.random() < 0.5 ? rand(0.04, 0.28) : 0); }
+  for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), a = Math.atan2(x, z), k = Math.max(0, 1.15 - y) * 1.6;
+    const f = 1 + 0.06 * Math.sin(a * 9 + y * 3) * k + rand(-0.02, 0.02) * k; p.setX(i, x * f); p.setZ(i, z * f);
+    if (y < 0.53) p.setY(i, Math.random() < 0.45 ? rand(0.4, 0.5) : 0.52); }      // torn hem
   geo.computeVertexNormals();
-  const dress = new THREE.Mesh(geo, MAT.cloth), base = Float32Array.from(p.array);
+  const dress = new THREE.Mesh(geo, MAT.uniform), base = Float32Array.from(p.array);
+  const apron = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.258, 0.56, 16, 4, true, -0.9, 1.8), MAT.apronN); apron.position.y = 0.84;
+  const ap = apron.geometry.attributes.position; for (let i = 0; i < ap.count; i++) if (ap.getY(i) < -0.27) ap.setY(i, ap.getY(i) + rand(0, 0.06));
+  const bib = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.2, 0.008), MAT.apronN); bib.position.set(0, 1.33, 0.178); bib.rotation.x = -0.06;
+  root.add(apron, bib);
+  for (const s of [-1, 1]) { root.add(bone(new V3(s * 0.075, 0.62, 0), new V3(s * 0.068, 0.07, 0.01), 0.046, 0.03, MAT.stocking, 10));
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.06, 0.17), MAT.shoe); shoe.position.set(s * 0.068, 0.03, 0.04); root.add(shoe); }
   const torso = new THREE.Group(); torso.position.y = 1.7;
   const neck = bone(new V3(0, 0, 0), new V3(0, 0.34, 0.02), 0.046, 0.032, MAT.faceCalm);
-  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.13, 0.16, 18, 1, true), MAT.cloth); collar.position.y = 0.05;
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.13, 0.16, 18, 1, true), MAT.uniform); collar.position.y = 0.05;
   const headG = new THREE.Group(); headG.position.set(0, 0.45, 0.02);
   const head = new THREE.Mesh(new THREE.SphereGeometry(1, 36, 28), MAT.faceCalm); head.scale.set(0.132, 0.2, 0.145);
   const zS = (x, y) => 0.145 * Math.sqrt(Math.max(0.0009, 1 - (x / 0.132) ** 2 - (y / 0.2) ** 2));
@@ -437,13 +482,16 @@ function buildDama(root) {
       new V3(sx * 1.3 + drift, -0.3, sz * 1.3 + (front ? 0.05 : -0.02)), new V3(sx * 1.35 + drift * 2, -L, sz * 1.2 + rand(-0.05, 0.05))])); }
   for (const x of [-0.07, -0.04, 0.05, 0.075]) curves.push(new THREE.CatmullRomCurve3([new V3(x * 0.5, 0.19, 0.08), new V3(x, 0.1, 0.16), new V3(x * 1.1, -0.06, 0.18), new V3(x * 1.3, -0.45, 0.13)])); // a veil of strands over the face
   const hair = new THREE.Group(); hair.add(hairMesh(curves, 0.0038, MAT.hair));
+  const capBand = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.075, 0.012), MAT.capN); capBand.scale.set(0.85, 0.75, 1); capBand.position.set(0, 0.205, 0.06); capBand.rotation.x = -0.6;
+  const capTop = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.012, 0.11), MAT.capN); capTop.scale.set(0.85, 1, 0.85); capTop.position.set(0, 0.222, 0.01); capTop.rotation.x = -0.25;
+  const capG = new THREE.Group(); capG.add(capBand, capTop); calmG.add(capG);
   headG.add(head, calmG, horrorG, scalp, hair);
   const armL = buildArm(-1, MAT.faceCalm, false), armR = buildArm(1, MAT.faceCalm, false);
   armL.shoulder.scale.setScalar(0.9); armR.shoulder.scale.setScalar(0.9);
-  for (const a of [armL, armR]) {      // long black sleeves: only her hands are bare
-    const up = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.068, 0.6, 12, 3, true), MAT.cloth); up.position.y = -0.27; a.shoulder.add(up);
-    const lo = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.075, 0.52, 12, 3, true), MAT.cloth); lo.position.y = -0.27;
-    const lp = lo.geometry.attributes.position; for (let i = 0; i < lp.count; i++) if (lp.getY(i) < -0.2) lp.setY(i, lp.getY(i) - Math.random() * 0.07); a.elbow.add(lo); }
+  for (const a of [armL, armR]) {      // long uniform sleeves: only her grey hands are bare
+    const up = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.068, 0.6, 12, 3, true), MAT.uniform); up.position.y = -0.27; a.shoulder.add(up);
+    const lo = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.07, 0.5, 12, 3, true), MAT.uniform); lo.position.y = -0.26;
+    const lp = lo.geometry.attributes.position; for (let i = 0; i < lp.count; i++) if (lp.getY(i) < -0.2) lp.setY(i, lp.getY(i) - Math.random() * 0.05); a.elbow.add(lo); }
   torso.add(neck, collar, headG, armL.shoulder, armR.shoulder);
   root.add(dress, torso);
   return { torso, headG, head, calmG, horrorG, grin, hair, arms: [armL, armR], cloth: { geo, base }, glows, morph: false };
@@ -477,7 +525,15 @@ function animDama(rig, grp, mode, dt) {
 }
 const tmpS = new V3();
 
-/* --- El Reptante: emaciated body bent into a spider, ribs and spine through the skin, head twisted upside down, jaw hanging open --- */
+/* --- El Paciente: an emaciated patient bent into a spider on the ceiling, torn hospital gown, wristband and a ripped-out IV line,
+       ribs and spine through the skin, head twisted upside down, jaw hanging open --- */
+MAT.gown = (() => { const cv = makeCanvas(256), g = cv.getContext('2d'); g.fillStyle = '#465a57'; g.fillRect(0, 0, 256, 256); grain(g, 256, 256, 22);
+  g.fillStyle = 'rgba(22,36,36,.55)'; for (let y = 8; y < 256; y += 22) for (let x = (y / 22 % 2) * 11; x < 256; x += 22) { g.beginPath(); g.moveTo(x, y - 4); g.lineTo(x + 4, y); g.lineTo(x, y + 4); g.lineTo(x - 4, y); g.fill(); }
+  blotches(g, 256, 8, 36, 'rgba(110,95,40,.4)'); blotches(g, 256, 6, 24, 'rgba(80,8,8,.6)'); blotches(g, 256, 10, 30, 'rgba(20,18,12,.45)');
+  return new THREE.MeshStandardMaterial({ map: texFrom(cv, 2, 2), roughness: 0.95, side: THREE.DoubleSide }); })();
+MAT.bandage = new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#6d6a60', 6)), roughness: 0.95 });
+MAT.band = new THREE.MeshStandardMaterial({ color: 0x9a978c, roughness: 0.6 });
+MAT.ivTube = new THREE.MeshStandardMaterial({ color: 0x9fb0a8, roughness: 0.3, transparent: true, opacity: 0.6 });
 function buildReptante(root) {
   const flip = new THREE.Group(); root.add(flip);
   const body = new THREE.Group(); body.position.y = 0.52; flip.add(body);
@@ -509,7 +565,19 @@ function buildReptante(root) {
       hip.add(bone(foot, tip, 0.008, 0.003, MAT.dead, 4)); const n = new THREE.Mesh(new THREE.ConeGeometry(0.005, 0.03, 4), MAT.nail);
       n.position.copy(tip); n.quaternion.setFromUnitVectors(YUP, tip.clone().sub(foot).normalize()); hip.add(n); }
     limbs.push({ hip, s, phase: rand(0, 6.28) }); }
-  return { kind: 'R', flip, body, headG, jaw, hair, limbs, ribs };
+  // hospital gown over the back (on the ceiling the back faces the floor), with rags hanging down
+  const gown = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.205, 0.8, 18, 6, true, Math.PI - 1.75, 3.5), MAT.gown); gown.rotation.x = Math.PI / 2; gown.position.set(0, 0.02, -0.03); body.add(gown);
+  const gp = gown.geometry.attributes.position; for (let i = 0; i < gp.count; i++) { const k = rand(0.97, 1.06); gp.setX(i, gp.getX(i) * k); gp.setZ(i, gp.getZ(i) * k); } gown.geometry.computeVertexNormals();
+  const rags = [];
+  for (let i = 0; i < 9; i++) { const L = rand(0.12, 0.34), t = new THREE.Mesh(new THREE.PlaneGeometry(rand(0.05, 0.1), L, 1, 3).translate(0, L / 2, 0), MAT.gown);
+    t.position.set(rand(-0.13, 0.13), 0.18, rand(-0.4, 0.3)); t.rotation.y = rand(0, 3.14); body.add(t); rags.push(t); }
+  { const l = limbs[0], kn = new V3(l.s * 0.42, 0.42, 0.18), ft = new V3(l.s * 0.6, -0.52, 0.42), dir = ft.clone().sub(kn).normalize();
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.024, 0.008, 5, 14), MAT.band); band.position.copy(kn.clone().lerp(ft, 0.78)); band.quaternion.setFromUnitVectors(new V3(0, 0, 1), dir); l.hip.add(band);
+    const pIV = kn.clone().lerp(ft, 0.55); l.hip.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([pIV, pIV.clone().add(new V3(0.04, 0.2, 0.02)), pIV.clone().add(new V3(-0.02, 0.45, 0.06)), pIV.clone().add(new V3(0.05, 0.62, 0.03))]), 18, 0.005, 4), MAT.ivTube));
+    const tape = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.035, 0.012), MAT.bandage); tape.position.copy(pIV); tape.quaternion.setFromUnitVectors(YUP, dir); l.hip.add(tape); }
+  for (const l of limbs.slice(2)) { const kn = new V3(l.s * 0.42, 0.42, -0.12), wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.056, 0.05, 0.22, 10), MAT.bandage);
+    wrap.position.copy(kn).multiplyScalar(0.5); wrap.quaternion.setFromUnitVectors(YUP, kn.clone().normalize()); l.hip.add(wrap); }
+  return { kind: 'R', flip, body, headG, jaw, hair, limbs, ribs, rags };
 }
 function animReptante(rig, grp, mode, dt) {
   if (!grp.visible) return;
@@ -520,12 +588,14 @@ function animReptante(rig, grp, mode, dt) {
   rig.jaw.rotation.x = mode === 'attack' || mode === 'hang' ? 0.6 : 0.18 + Math.sin(t * 2) * 0.08;
   rig.body.position.x = Math.sin(t * sp * 0.5) * 0.015;
   rig.ribs.forEach((r, i) => r.scale.y = 0.85 + Math.sin(t * 6 + i) * 0.03);   // laboured breathing
+  rig.rags.forEach((r, i) => { r.rotation.x = Math.sin(t * (sp * 0.4 + 1.3) + i) * 0.25; r.rotation.z = Math.cos(t * 1.7 + i * 2) * 0.15; });
   const rear = mode === 'attack' ? 1 : 0;
   rig.body.rotation.x += (-1.05 * rear - rig.body.rotation.x) * Math.min(1, dt * 12);
   rig.body.position.y += (0.52 + rear * 0.8 - rig.body.position.y) * Math.min(1, dt * 12);
 }
 
-/* --- El Carnicero: a huge hunched man, burlap sack stitched over his head, blood-soaked shirt and leather apron, a cleaver in his hand --- */
+/* --- El Cirujano: a huge hunched surgeon in filthy scrubs and a blood-soaked rubber apron, surgical cap, a mask soaked red,
+       sunken eyes under a head lamp that sweeps the corridors, and an amputation saw in his hand --- */
 function burlapCanvas() { const cv = makeCanvas(256), g = cv.getContext('2d'); g.fillStyle = '#3a2f20'; g.fillRect(0, 0, 256, 256);
   for (let y = 0; y < 256; y += 4) { g.fillStyle = 'rgba(25,16,8,.38)'; g.fillRect(0, y + rand(-0.5, 0.5), 256, 1.6); }
   for (let x = 0; x < 256; x += 4) { g.fillStyle = 'rgba(25,16,8,.32)'; g.fillRect(x, 0, 1.6, 256); }
@@ -534,17 +604,23 @@ function burlapCanvas() { const cv = makeCanvas(256), g = cv.getContext('2d'); g
   return cv; }
 function stainedCanvas(base, blood) { const cv = makeCanvas(256), g = cv.getContext('2d'); g.fillStyle = base; g.fillRect(0, 0, 256, 256); grain(g, 256, 256, 24);
   blotches(g, 256, 18, 26, 'rgba(30,22,14,.45)'); blotches(g, 256, blood, 34, 'rgba(85,6,8,.7)');
-  for (let i = 0; i < blood; i++) { g.fillStyle = 'rgba(95,8,8,.75)'; for (let k = 0; k < 12; k++) { g.beginPath(); g.arc(rand(0, 256), rand(0, 256), rand(1, 4), 0, 6.28); g.fill(); } }
+  for (let i = 0; i < blood; i++) { g.fillStyle = 'rgba(62,5,6,.8)'; for (let k = 0; k < 12; k++) { g.beginPath(); g.arc(rand(0, 256), rand(0, 256), rand(1, 4), 0, 6.28); g.fill(); } }
   return cv; }
-MAT.burlap = (() => { const cv = burlapCanvas(); return new THREE.MeshStandardMaterial({ map: texFrom(cv, 2, 2), bumpMap: texFrom(cv, 2, 2, false), bumpScale: 0.01, roughness: 1 }); })();
-MAT.shirt = new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#2b251e', 7), 2, 2), roughness: 0.95 });
-MAT.apron = new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#1b130d', 12), 1, 2), roughness: 0.45, side: THREE.DoubleSide });
-MAT.pants = new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#121110', 2), 2, 2), roughness: 0.95 });
-MAT.boot = new THREE.MeshStandardMaterial({ color: 0x17110d, roughness: 0.6 });
-MAT.flesh = (() => { const cv = skinCanvas('#3e302a', 24, 6, 'rgba(60,15,15,.5)'); return new THREE.MeshStandardMaterial({ map: texFrom(cv), bumpMap: texFrom(cv, 1, 1, false), bumpScale: 0.005, roughness: 0.6 }); })();
-MAT.rope = new THREE.MeshStandardMaterial({ color: 0x5b4630, roughness: 1 });
+MAT.shirt = new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#22312d', 13), 2, 2), roughness: 0.95 });       // scrubs
+MAT.apron = new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#111010', 16), 1, 2), roughness: 0.3, metalness: 0.1, side: THREE.DoubleSide });   // rubber
+MAT.pants = new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#1b2725', 4), 2, 2), roughness: 0.95 });
+MAT.boot = new THREE.MeshStandardMaterial({ color: 0x23231f, roughness: 0.4 });
+MAT.flesh = (() => { const cv = skinCanvas('#4d443d', 24, 8, 'rgba(60,15,15,.5)'); return new THREE.MeshStandardMaterial({ map: texFrom(cv), bumpMap: texFrom(cv, 1, 1, false), bumpScale: 0.005, roughness: 0.6 }); })();
+MAT.glove = (() => { const cv = skinCanvas('#5a5442', 0, 2, 'rgba(95,8,8,.75)'); return new THREE.MeshStandardMaterial({ map: texFrom(cv), roughness: 0.3 }); })();
+MAT.capS = new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#283a36', 4)), roughness: 0.95 });
+MAT.mask = (() => { const cv = makeCanvas(256), g = cv.getContext('2d'); g.fillStyle = '#56686a'; g.fillRect(0, 0, 256, 256); grain(g, 256, 256, 18);
+  for (let y = 40; y < 256; y += 28) { g.fillStyle = 'rgba(20,30,30,.35)'; g.fillRect(0, y, 256, 3); }      // pleats
+  const gr = g.createRadialGradient(128, 150, 6, 128, 150, 110); gr.addColorStop(0, 'rgba(70,3,6,.95)'); gr.addColorStop(0.6, 'rgba(70,3,6,.6)'); gr.addColorStop(1, 'rgba(70,3,6,0)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = 'rgba(70,3,6,.85)'; for (let i = 0; i < 12; i++) { g.lineWidth = rand(2, 6); const x = rand(60, 200); g.beginPath(); g.moveTo(x, rand(150, 190)); g.lineTo(x + rand(-3, 3), 256); g.stroke(); }
+  return new THREE.MeshStandardMaterial({ map: texFrom(cv), roughness: 0.85, side: THREE.DoubleSide }); })();
 MAT.blade = (() => { const cv = makeCanvas(128), g = cv.getContext('2d'); g.fillStyle = '#8b8d8f'; g.fillRect(0, 0, 128, 128); grain(g, 128, 128, 30);
   blotches(g, 128, 10, 22, 'rgba(110,50,20,.6)'); blotches(g, 128, 6, 18, 'rgba(90,5,5,.7)'); return new THREE.MeshStandardMaterial({ map: texFrom(cv), metalness: 0.75, roughness: 0.4 }); })();
+MAT.lens = new THREE.MeshBasicMaterial({ color: 0xeaf6ff });
 MAT.wood = new THREE.MeshStandardMaterial({ color: 0x3b2616, roughness: 0.8 });
 const capsule = (r, len, mat) => new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 5, 12), mat);
 function buildCarnicero(root) {
@@ -562,39 +638,40 @@ function buildCarnicero(root) {
   const ap = apron.geometry.attributes.position; for (let i = 0; i < ap.count; i++) if (ap.getY(i) < -0.45) ap.setY(i, ap.getY(i) - Math.random() * 0.08);
   const strap = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.012, 4, 20, Math.PI), MAT.apron); strap.position.set(0, 0.6, 0.06); strap.rotation.x = -0.3; torso.add(apron, strap);
   const neck = bone(new V3(0, 0.66, 0), new V3(0, 0.8, 0.04), 0.075, 0.062, MAT.flesh);
-  const headG = new THREE.Group(); headG.position.set(0, 0.92, 0.05);
-  const sackGeo = new THREE.SphereGeometry(1, 28, 22); const sp = sackGeo.attributes.position;
-  for (let i = 0; i < sp.count; i++) { const n = 1 + 0.05 * Math.sin(sp.getX(i) * 9 + sp.getY(i) * 7) + rand(-0.025, 0.025); sp.setXYZ(i, sp.getX(i) * n, sp.getY(i) * n, sp.getZ(i) * n); }
-  sackGeo.computeVertexNormals();
-  const sack = new THREE.Mesh(sackGeo, MAT.burlap); sack.scale.set(0.14, 0.168, 0.145); headG.scale.setScalar(1.18);
-  const gather = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.11, 0.12, 14, 2, true), MAT.burlap); gather.position.y = -0.17;
-  const rope = new THREE.Mesh(new THREE.TorusGeometry(0.078, 0.014, 6, 22), MAT.rope); rope.rotation.x = Math.PI / 2; rope.position.y = -0.13;
-  const knot = joint(0.024, MAT.rope); knot.position.set(0.05, -0.135, 0.06);
-  const zS = (x, y) => 0.145 * Math.sqrt(Math.max(0.0009, 1 - (x / 0.14) ** 2 - (y / 0.168) ** 2));
-  const eyes = [[-0.05, 0.03, 0.2], [0.052, 0.022, -0.15]].map(([x, y, rot]) => { const hole = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), MAT.void);
-    hole.scale.set(0.032, 0.022, 0.012); hole.rotation.z = rot; hole.position.set(x, y, zS(x, y) - 0.002);
-    const glint = new THREE.Mesh(new THREE.SphereGeometry(0.0055, 8, 6), new THREE.MeshBasicMaterial({ color: 0xd9cfb0 })); glint.position.set(x + 0.004, y, zS(x, y) + 0.004);
-    headG.add(hole, glint); return glint; });
-  const mouthPts = []; for (let i = 0; i <= 10; i++) { const x = -0.055 + i * 0.011, y = -0.065 - Math.sin(i / 10 * Math.PI) * 0.008 + rand(-0.003, 0.003); mouthPts.push(new V3(x, y, zS(x, y) + 0.002)); }
-  headG.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(mouthPts), 30, 0.0035, 4), MAT.void));
-  for (let i = 1; i < 10; i += 1) { const pM = mouthPts[i]; headG.add(bone(pM.clone().add(new V3(-0.004, 0.012, 0.001)), pM.clone().add(new V3(0.004, -0.012, 0.001)), 0.0018, 0.0018, MAT.rope, 4)); }
-  headG.add(sack, gather, rope, knot);
+  const headG = new THREE.Group(); headG.position.set(0, 0.9, 0.05);
+  const RX = 0.115, RY = 0.15, RZ = 0.128, zS = (x, y) => RZ * Math.sqrt(Math.max(0.0009, 1 - (x / RX) ** 2 - (y / RY) ** 2));
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 22), MAT.flesh); skull.scale.set(RX, RY, RZ);
+  const capGeo = new THREE.SphereGeometry(1, 24, 14, 0, Math.PI * 2, 0, Math.PI * 0.44), cp = capGeo.attributes.position;
+  for (let i = 0; i < cp.count; i++) { const n = 1 + 0.04 * Math.sin(cp.getX(i) * 14 + cp.getZ(i) * 9) + rand(-0.015, 0.015); cp.setXYZ(i, cp.getX(i) * n, cp.getY(i) * n, cp.getZ(i) * n); } capGeo.computeVertexNormals();
+  const cap = new THREE.Mesh(capGeo, MAT.capS); cap.scale.set(RX * 1.12, RY * 1.1, RZ * 1.14); cap.rotation.x = -0.22; cap.position.y = 0.012;
+  const mask = new THREE.Mesh(new THREE.SphereGeometry(1, 22, 12, Math.PI / 2 - 1.2, 2.4, Math.PI * 0.5, Math.PI * 0.37), MAT.mask); mask.scale.set(RX * 1.08, RY * 1.05, RZ * 1.12);
+  const mStrap = new THREE.Mesh(new THREE.TorusGeometry(1, 0.05, 4, 30), MAT.capS); mStrap.scale.set(RX * 1.06, RZ * 1.06, 0.12); mStrap.rotation.x = Math.PI / 2; mStrap.position.y = -0.03;
+  const eyes = [-0.042, 0.042].map(x => { const y = 0.03, hole = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), MAT.void); hole.scale.set(0.028, 0.019, 0.012); hole.position.set(x, y, zS(x, y) - 0.003);
+    const glint = new THREE.Mesh(new THREE.SphereGeometry(0.005, 8, 6), new THREE.MeshBasicMaterial({ color: 0xd9cfb0 })); glint.position.set(x * 0.95, y - 0.002, zS(x, y) + 0.002); headG.add(hole, glint); return glint; });
+  for (const s of [-1, 1]) { const ear = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), MAT.flesh); ear.scale.set(0.014, 0.034, 0.024); ear.position.set(s * RX, 0.01, -0.005); headG.add(ear); }
+  const band = new THREE.Mesh(new THREE.TorusGeometry(1, 0.06, 4, 30), MAT.rubberK || MAT.boot); band.scale.set(RX * 1.15, RZ * 1.17, 0.12); band.rotation.x = Math.PI / 2 - 0.15; band.position.y = 0.075;
+  const lampY = 0.085, lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.026, 0.035, 14).rotateX(Math.PI / 2), MAT.blade); lamp.position.set(0, lampY, zS(0, lampY) + 0.03);
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.024, 16), MAT.lens); lens.position.set(0, lampY, zS(0, lampY) + 0.049);
+  const lampAim = new THREE.Object3D(); lampAim.position.set(0, -0.9, 3); headG.add(lampAim);
+  const flare = glowSprite('rgba(230,245,255,0.9)'); flare.scale.set(0.16, 0.16, 1); flare.position.copy(lens.position); flare.position.z += 0.01;
+  headG.add(skull, cap, mask, mStrap, band, lamp, lens, flare); headG.scale.setScalar(1.1);
   const arm = s => { const sh = new THREE.Group(); sh.position.set(s * 0.31, 0.56, 0); sh.add(joint(0.085, MAT.shirt));
     const up = capsule(0.068, 0.26, MAT.shirt); up.position.y = -0.18; sh.add(up);
     const el = new THREE.Group(); el.position.y = -0.37; sh.add(el); el.add(joint(0.058, MAT.flesh));
     const fo = capsule(0.056, 0.25, MAT.flesh); fo.position.y = -0.17; el.add(fo);
     const wr = new THREE.Group(); wr.position.y = -0.35; el.add(wr);
-    const palm = capsule(0.04, 0.05, MAT.flesh); palm.scale.set(1.25, 1, 0.65); palm.position.y = -0.05; wr.add(palm);
-    for (let f = 0; f < 4; f++) { const fx = (f - 1.5) * 0.022; wr.add(bone(new V3(fx, -0.08, 0.005), new V3(fx * 1.1, -0.14, 0.03), 0.012, 0.01, MAT.flesh, 6), bone(new V3(fx * 1.1, -0.14, 0.03), new V3(fx * 1.1, -0.18, 0.055), 0.01, 0.008, MAT.flesh, 6)); }
-    wr.add(bone(new V3(s * -0.035, -0.04, 0.02), new V3(s * -0.04, -0.1, 0.06), 0.012, 0.01, MAT.flesh, 6));
+    const palm = capsule(0.04, 0.05, MAT.glove); palm.scale.set(1.25, 1, 0.65); palm.position.y = -0.05; wr.add(palm);
+    for (let f = 0; f < 4; f++) { const fx = (f - 1.5) * 0.022; wr.add(bone(new V3(fx, -0.08, 0.005), new V3(fx * 1.1, -0.14, 0.03), 0.012, 0.01, MAT.glove, 6), bone(new V3(fx * 1.1, -0.14, 0.03), new V3(fx * 1.1, -0.18, 0.055), 0.01, 0.008, MAT.glove, 6)); }
+    wr.add(bone(new V3(s * -0.035, -0.04, 0.02), new V3(s * -0.04, -0.1, 0.06), 0.012, 0.01, MAT.glove, 6));
     return { sh, el, wr }; };
   const armL = arm(-1), armR = arm(1);
-  const cleaver = new THREE.Group(); cleaver.position.set(0, -0.13, 0.05); cleaver.rotation.x = 0.25; armR.wr.add(cleaver);
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.13, 8), MAT.wood); cleaver.add(handle);
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.24, 0.12), MAT.blade); blade.position.set(0, -0.17, 0.035); cleaver.add(blade);
+  const saw = new THREE.Group(); saw.position.set(0, -0.13, 0.05); saw.rotation.x = 0.25; armR.wr.add(saw);      // amputation saw
+  saw.add(new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.016, 0.13, 8), MAT.wood));
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.36, 0.07), MAT.blade); blade.position.set(0, -0.24, 0.02); saw.add(blade);
+  const tt = []; for (let i = 0; i < 22; i++) tt.push({ p: new V3(0, -0.075 - i * 0.0155, 0.054), dir: new V3(0, -0.45, 1), len: 0.014, r: 0.0042 }); saw.add(teethMesh(tt, MAT.blade));
   torso.add(neck, headG, armL.sh, armR.sh);
   torso.rotation.x = 0.28;
-  return { hips, torso, headG, legs, arms: [armL, armR], phase: 0, eyes };
+  return { hips, torso, headG, legs, arms: [armL, armR], phase: 0, eyes, lens, lampAim };
 }
 function animCarnicero(rig, grp, mode, dt, speed) {
   if (!grp.visible) return;
@@ -619,6 +696,184 @@ function animCarnicero(rig, grp, mode, dt, speed) {
   rig.headG.rotation.x = -rig.torso.rotation.x * (mode === 'attack' ? 0.9 : 0.6);
 }
 
+/* ================= HOSPITAL DRESSING =================
+   Abandoned hospital: gurneys with covered bodies, wheelchairs, IV stands, instrument carts, ward doors, wall signs,
+   fallen ceiling tiles, dead fluorescent tubes and vital-signs monitors that show YOUR real ECG. Static pieces are merged per material. */
+const solids = [];                                  // furniture the player and the monsters bump into
+function rustCanvas(base) { const cv = makeCanvas(128), g = cv.getContext('2d'); g.fillStyle = base; g.fillRect(0, 0, 128, 128); grain(g, 128, 128, 30);
+  blotches(g, 128, 10, 18, 'rgba(110,55,20,.55)'); blotches(g, 128, 6, 10, 'rgba(60,30,10,.6)'); return cv; }
+const HM = {
+  metal: new THREE.MeshStandardMaterial({ map: texFrom(rustCanvas('#77756d'), 2, 2), metalness: 0.6, roughness: 0.5 }),
+  rubber: new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.8 }),
+  mattress: new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#323a36', 6), 1, 2), roughness: 0.9 }),
+  sheet: new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#4e4f49', 7), 1, 2), roughness: 0.95, side: THREE.DoubleSide }),
+  vinyl: new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#1d2422', 3)), roughness: 0.45 }),
+  bag: new THREE.MeshStandardMaterial({ color: 0xa9b4a8, roughness: 0.2, transparent: true, opacity: 0.55 }),
+  blood: new THREE.MeshStandardMaterial({ color: 0x3a0306, roughness: 0.15, transparent: true, opacity: 0.85 }),
+  tube: new THREE.MeshStandardMaterial({ color: 0x9fb0a8, roughness: 0.3, transparent: true, opacity: 0.6 }),
+  cart: new THREE.MeshStandardMaterial({ map: texFrom(rustCanvas('#56625d')), metalness: 0.4, roughness: 0.55 }),
+  chrome: new THREE.MeshStandardMaterial({ color: 0x8a8c88, metalness: 0.85, roughness: 0.3 }),
+  hole: new THREE.MeshBasicMaterial({ color: 0x010101 }),
+  tile: new THREE.MeshStandardMaterial({ map: texFrom(ceilCv), roughness: 1, side: THREE.DoubleSide }),
+  cable: new THREE.MeshStandardMaterial({ color: 0x0b0b0b, roughness: 0.6 }),
+  deadTube: new THREE.MeshStandardMaterial({ color: 0x5a5d58, roughness: 0.35 }),
+  paper: new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#8a877c', 1)), roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -2 }),
+  puddle: new THREE.MeshStandardMaterial({ color: 0x0b0d0c, roughness: 0.05, metalness: 0.3, polygonOffset: true, polygonOffsetFactor: -1 }),
+  plastic: new THREE.MeshStandardMaterial({ color: 0x23272a, roughness: 0.5 }),
+};
+function bakeInto(grp) { grp.updateMatrixWorld(true); const by = new Map();
+  grp.traverse(o => { if (!o.isMesh) return; let g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    for (const n of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(n)) g.deleteAttribute(n);
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+    if (!g.attributes.normal) g.computeVertexNormals();
+    g.applyMatrix4(o.matrixWorld); if (!by.has(o.material)) by.set(o.material, []); by.get(o.material).push(g); });
+  for (const [m, list] of by) scene.add(new THREE.Mesh(mergeGeometries(list), m)); }
+
+// a stained sheet; with a body under it the cloth follows head, torso, legs and feet, and drapes over the edges
+function sheetGeo(withBody) { const geo = new THREE.PlaneGeometry(0.92, 2.04, 14, 30); geo.rotateX(-Math.PI / 2); const p = geo.attributes.position;
+  const E = (x, z, ex, ez, h) => { const q = 1 - (x / ex) ** 2 - (z / ez) ** 2; return q > 0 ? h * Math.sqrt(q) : 0; };
+  for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i), ax = Math.abs(x); let y = 0.9;
+    if (withBody) y += Math.max(E(x, z - 0.05, 0.21, 0.48, 0.15), E(x, z - 0.76, 0.12, 0.13, 0.16), E(x - 0.09, z + 0.5, 0.08, 0.42, 0.08), E(x + 0.09, z + 0.5, 0.08, 0.42, 0.08), E(x - 0.09, z + 0.9, 0.05, 0.06, 0.15), E(x + 0.09, z + 0.9, 0.05, 0.06, 0.15));
+    if (ax > 0.31) y = 0.9 - (ax - 0.31) * 2.2 + rand(-0.02, 0.02);
+    p.setY(i, y + rand(-0.005, 0.005)); }
+  geo.computeVertexNormals(); return geo; }
+function buildGurney(body, bed = false) { const g = new THREE.Group(), M = HM.metal;
+  for (const s of [-1, 1]) {
+    g.add(bone(new V3(s * 0.3, 0.8, -0.95), new V3(s * 0.3, 0.8, 0.95), 0.016, 0.016, M, 6), bone(new V3(s * 0.28, 0.3, -0.85), new V3(s * 0.28, 0.3, 0.85), 0.012, 0.012, M, 6));
+    for (const z of [-0.85, 0.85]) { g.add(bone(new V3(s * 0.28, 0.1, z), new V3(s * 0.3, 0.8, z), 0.016, 0.016, M, 6));
+      const w = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.04, 12).rotateZ(Math.PI / 2), HM.rubber); w.position.set(s * 0.28, 0.065, z); g.add(w); } }
+  for (const z of [-0.95, 0, 0.95]) g.add(bone(new V3(-0.3, 0.8, z), new V3(0.3, 0.8, z), 0.014, 0.014, M, 6));
+  const mat = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.09, 1.86), HM.mattress); mat.position.y = 0.85; g.add(mat);
+  if (bed) for (const z of [-1, 1]) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.7, z > 0 ? 0.62 : 0.42, 0.04), M); b.position.set(0, z > 0 ? 1.0 : 0.9, z); g.add(b); }
+  if (body !== null) g.add(new THREE.Mesh(sheetGeo(body), HM.sheet));
+  if (body && Math.random() < 0.65) { const s = Math.random() < 0.5 ? 1 : -1;     // a grey hand slipped out from under the sheet
+    g.add(bone(new V3(s * 0.3, 0.9, 0.15), new V3(s * 0.37, 0.6, 0.2), 0.026, 0.02, MAT.dead), bone(new V3(s * 0.37, 0.6, 0.2), new V3(s * 0.38, 0.47, 0.23), 0.022, 0.011, MAT.dead)); }
+  return g; }
+function buildWheelchair() { const g = new THREE.Group(), M = HM.metal;
+  for (const s of [-1, 1]) {
+    const w = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.016, 6, 28).rotateY(Math.PI / 2), HM.rubber); w.position.set(s * 0.27, 0.3, -0.05); g.add(w);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.007, 4, 24).rotateY(Math.PI / 2), M); rim.position.set(s * 0.3, 0.3, -0.05); g.add(rim);
+    for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI; g.add(bone(new V3(s * 0.27, 0.3 + Math.cos(a) * 0.26, -0.05 + Math.sin(a) * 0.26), new V3(s * 0.27, 0.3 - Math.cos(a) * 0.26, -0.05 - Math.sin(a) * 0.26), 0.003, 0.003, M, 3)); }
+    const c = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.014, 5, 14).rotateY(Math.PI / 2), HM.rubber); c.position.set(s * 0.22, 0.075, 0.33); g.add(c);
+    g.add(bone(new V3(s * 0.23, 0.5, -0.2), new V3(s * 0.23, 1.0, -0.26), 0.012, 0.012, M, 6), bone(new V3(s * 0.23, 0.5, -0.2), new V3(s * 0.23, 0.5, 0.25), 0.012, 0.012, M, 6),
+      bone(new V3(s * 0.23, 0.5, 0.25), new V3(s * 0.22, 0.12, 0.33), 0.011, 0.011, M, 6), bone(new V3(s * 0.23, 0.68, -0.18), new V3(s * 0.23, 0.68, 0.18), 0.011, 0.011, M, 6),
+      bone(new V3(s * 0.23, 0.68, 0.18), new V3(s * 0.23, 0.5, 0.2), 0.01, 0.01, M, 6), bone(new V3(s * 0.23, 1.0, -0.26), new V3(s * 0.23, 1.0, -0.36), 0.017, 0.017, HM.rubber, 6));
+    const fr = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.015, 0.1), M); fr.position.set(s * 0.12, 0.13, 0.36); g.add(fr); }
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.03, 0.44), HM.vinyl); seat.position.set(0, 0.5, 0.02);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.4, 0.025), HM.vinyl); back.position.set(0, 0.74, -0.22); back.rotation.x = -0.08;
+  g.add(seat, back); return g; }
+function buildIV(blood) { const g = new THREE.Group(), M = HM.metal;
+  g.add(bone(new V3(0, 0.06, 0), new V3(0, 1.95, 0), 0.011, 0.011, M, 6), bone(new V3(-0.14, 1.9, 0), new V3(0.14, 1.9, 0), 0.007, 0.007, M, 5));
+  for (let k = 0; k < 5; k++) { const a = k / 5 * 6.28; g.add(bone(new V3(0, 0.07, 0), new V3(Math.cos(a) * 0.28, 0.05, Math.sin(a) * 0.28), 0.01, 0.01, M, 5));
+    const w = joint(0.025, HM.rubber); w.position.set(Math.cos(a) * 0.28, 0.025, Math.sin(a) * 0.28); g.add(w); }
+  const bag = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.14, 4, 10), blood ? HM.blood : HM.bag); bag.scale.z = 0.4; bag.position.set(0.12, 1.72, 0); g.add(bag);
+  g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new V3(0.12, 1.6, 0), new V3(0.16, 1.2, 0.04), new V3(0.1, 0.7, 0.1), new V3(0.2, 0.45, 0.05)]), 20, 0.004, 4), HM.tube));
+  return g; }
+function buildCart() { const g = new THREE.Group(); const b = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.78, 0.46), HM.cart); b.position.y = 0.5; g.add(b);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.025, 0.5), HM.metal); top.position.y = 0.9; g.add(top);
+  for (const [x, z] of [[-0.27, -0.19], [0.27, -0.19], [-0.27, 0.19], [0.27, 0.19]]) { const w = joint(0.045, HM.rubber); w.position.set(x, 0.045, z); g.add(w); }
+  for (let i = 0; i < 4; i++) { const bt = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.14, 8), i % 2 ? HM.bag : HM.blood); bt.position.set(rand(-0.27, -0.05), 0.985, rand(-0.17, 0.17)); g.add(bt); }
+  const tray = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.02, 0.22), HM.chrome); tray.position.set(0.13, 0.925, 0.05); g.add(tray);
+  for (let i = 0; i < 5; i++) { const t = bone(new V3(0.02 + i * 0.045, 0.94, -0.04), new V3(0.04 + i * 0.045, 0.94, 0.14), 0.004, 0.002, HM.chrome, 4); g.add(t); }   // scalpels and clamps
+  return g; }
+
+// wall pieces: ward doors (one has a face pressed to its window), operating-room and morgue doors, signs
+function doorCanvas(num, face) { const cv = makeCanvas(256, 512), g = cv.getContext('2d');
+  g.fillStyle = '#151816'; g.fillRect(0, 0, 256, 512); g.fillStyle = '#3c4f47'; g.fillRect(14, 14, 228, 498); grain(g, 256, 512, 24);
+  for (let k = 0; k < 2; k++) { g.save(); g.translate(0, k * 256); blotches(g, 256, 8, 40, 'rgba(20,25,20,.5)'); blotches(g, 256, 6, 16, 'rgba(110,105,95,.5)'); g.restore(); }
+  g.fillStyle = '#050807'; g.fillRect(70, 70, 116, 150);
+  g.strokeStyle = 'rgba(120,130,125,.22)'; g.lineWidth = 1; for (let d = -150; d < 270; d += 12) { g.beginPath(); g.moveTo(70 + d, 70); g.lineTo(70 + d + 150, 220); g.stroke(); g.beginPath(); g.moveTo(186 - d, 70); g.lineTo(186 - d - 150, 220); g.stroke(); }
+  g.fillStyle = '#151816'; g.fillRect(64, 64, 128, 6); g.fillRect(64, 220, 128, 6); g.fillRect(64, 64, 6, 162); g.fillRect(186, 64, 6, 162);
+  if (face) { const gr = g.createRadialGradient(128, 150, 4, 128, 150, 46); gr.addColorStop(0, 'rgba(150,140,124,.75)'); gr.addColorStop(1, 'rgba(150,140,124,0)');
+    g.fillStyle = gr; g.beginPath(); g.ellipse(128, 150, 36, 48, 0, 0, 6.28); g.fill(); g.fillStyle = '#020202';
+    g.beginPath(); g.ellipse(114, 140, 8, 6, 0, 0, 6.28); g.fill(); g.beginPath(); g.ellipse(142, 140, 8, 6, 0, 0, 6.28); g.fill(); g.beginPath(); g.ellipse(128, 172, 10, 5, 0, 0, 6.28); g.fill(); }
+  g.fillStyle = '#c4bfae'; g.fillRect(88, 250, 80, 30); g.fillStyle = '#1b1b1b'; g.font = 'bold 22px Arial'; g.textAlign = 'center'; g.fillText(num, 128, 273);
+  g.fillStyle = '#8a8a82'; g.fillRect(196, 286, 26, 10); g.fillRect(204, 270, 12, 40);
+  g.fillStyle = '#4f504b'; g.fillRect(14, 440, 228, 72); grain(g, 256, 512, 8);
+  const gr = g.createLinearGradient(0, 380, 0, 512); gr.addColorStop(0, 'rgba(20,16,10,0)'); gr.addColorStop(1, 'rgba(20,16,10,.7)'); g.fillStyle = gr; g.fillRect(0, 380, 256, 132);
+  if (Math.random() < 0.4) { g.save(); g.translate(rand(-60, 60), rand(120, 200)); g.scale(0.5, 0.5); g.drawImage(bloodCanvas(null), 0, 0); g.restore(); }
+  return cv; }
+function doubleDoorCanvas(label, steel) { const cv = makeCanvas(512, 620), g = cv.getContext('2d');
+  g.fillStyle = '#111312'; g.fillRect(0, 0, 512, 620); g.fillStyle = steel ? '#55595a' : '#4a5c54'; g.fillRect(14, 90, 238, 530); g.fillRect(260, 90, 238, 530); grain(g, 512, 620, 26);
+  for (let k = 0; k < 3; k++) { g.save(); g.translate(0, 90 + k * 180); blotches(g, 512, 8, 40, 'rgba(25,22,18,.5)'); blotches(g, 512, 4, 22, 'rgba(90,40,15,.45)'); g.restore(); }
+  g.fillStyle = steel ? '#1a1a1a' : '#8f1016'; g.fillRect(0, 0, 512, 80); g.fillStyle = steel ? '#c9c4b4' : '#eee6d8'; g.font = 'bold 58px Arial'; g.textAlign = 'center'; g.fillText(label, 256, 60);
+  for (const x of [133, 379]) { if (steel) { g.fillStyle = '#26292a'; g.fillRect(x - 70, 300, 140, 22); }
+    else { g.fillStyle = '#040605'; g.beginPath(); g.arc(x, 220, 46, 0, 6.28); g.fill(); g.strokeStyle = '#1c201e'; g.lineWidth = 8; g.stroke(); }
+    g.fillStyle = '#7b7d78'; g.fillRect(x - 40, 330, 80, 120); }
+  if (steel) { g.fillStyle = '#121212'; g.font = 'bold 30px Arial'; g.textAlign = 'center'; g.fillText('SOLO PERSONAL AUTORIZADO', 256, 560); g.save(); g.translate(250, 330); g.drawImage(bloodCanvas(null), -256, -128); g.restore(); }
+  return cv; }
+function signCanvas(text, color) { const cv = makeCanvas(512, 128), g = cv.getContext('2d'); g.fillStyle = '#bdb9aa'; g.fillRect(0, 0, 512, 128); grain(g, 512, 128, 26);
+  g.fillStyle = color; g.fillRect(0, 0, 512, 14); g.fillRect(0, 114, 512, 14);
+  g.fillStyle = '#1b2531'; g.font = 'bold ' + (text.length > 14 ? 50 : 62) + 'px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 256, 66);
+  for (let i = 0; i < 4; i++) { g.fillStyle = 'rgba(60,45,20,.4)'; g.beginPath(); g.ellipse(rand(0, 512), rand(0, 128), rand(20, 70), rand(10, 30), 0, 0, 6.28); g.fill(); }
+  return cv; }
+const flatMat = (cv, extra = {}) => new THREE.MeshStandardMaterial({ map: texFrom(cv), roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -1, ...extra });
+function wallPlane(c, dc, dr, w, h, y, mat, shift = 0, out = 0.012) { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+  const sx = dr ? shift : 0, sz = dc ? shift : 0; m.position.set(c.x + dc * (CELL / 2 - out) + sx, y, c.z + dr * (CELL / 2 - out) + sz); m.lookAt(c.x + sx, y, c.z + sz); return m; }
+
+// vital-signs monitors on the walls: they show the player's own heart (the simulated one now, the ESP32 later)
+const monCv = makeCanvas(256, 176), monG = monCv.getContext('2d'), monTex = texFrom(monCv), MONS = [], MON = { flat: 0, next: 0 };
+function addMonitor(STATIC, c, dc, dr) { const g = new THREE.Group();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.42, 0.14), HM.plastic); const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.32), new THREE.MeshBasicMaterial({ map: monTex })); scr.position.z = 0.072;
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.2), HM.metal); arm.position.z = -0.13; g.add(box, scr);
+  const x = c.x + dc * (CELL / 2 - 0.26), z = c.z + dr * (CELL / 2 - 0.26); g.position.set(x, 1.62, z); g.lookAt(c.x, 1.62, c.z); g.updateMatrixWorld(true); scene.add(g);
+  const a2 = arm.clone(); a2.position.copy(g.localToWorld(new V3(0, 0, -0.17))); a2.quaternion.copy(g.quaternion); STATIC.add(a2);
+  MONS.push({ x, y: 1.62, z }); }
+function drawMonitors() { if (!MONS.length || sim.t < MON.next) return; MON.next = sim.t + 0.1;
+  const g = monG, flat = sim.t < MON.flat, alarm = flat || algo.state === 2, blink = Math.floor(sim.t * 3) % 2;
+  g.fillStyle = '#010302'; g.fillRect(0, 0, 256, 176); g.fillStyle = alarm && blink ? '#4a060a' : '#06100b'; g.fillRect(0, 0, 256, 30);
+  g.font = 'bold 18px monospace'; g.fillStyle = alarm ? '#ff3344' : '#39ff88'; g.fillText(flat ? 'ASISTOLIA' : alarm ? 'ALARMA  FC ALTA' : 'ECG  II   PACIENTE: TÚ', 8, 21);
+  if (flat) { g.strokeStyle = '#39ff88'; g.lineWidth = 2; g.beginPath(); g.moveTo(0, 104); for (let x = 0; x < 180; x += 6) g.lineTo(x, 104 + rand(-1, 1)); g.stroke(); }
+  else g.drawImage(ecgCv, 0, 0, ecgCv.width, ecgCv.height, 0, 50, 180, 100);
+  g.fillStyle = flat || alarm ? '#ff3344' : '#39ff88'; g.font = 'bold 50px monospace'; g.fillText(flat ? '0' : String(Math.round(sim.hr)), 184, 108); g.font = '14px monospace'; g.fillText('FC lpm', 186, 58);
+  g.fillStyle = '#6fc6ff'; g.fillText('SpO2 ' + (flat ? '--' : String(95 + (Math.floor(sim.t / 4) % 3))), 186, 150); monTex.needsUpdate = true; }
+function monitorBeep() { if (!AC || sim.t < MON.flat || !running) return; const h = getHead(); let best = null, bd = 7;
+  for (const m of MONS) { const d = Math.hypot(m.x - h.x, m.z - h.z); if (d < bd) { bd = d; best = m; } }
+  if (best) sfxBeep(at(best.x, best.y, best.z), algo.state === 2 ? 1180 : 960, algo.state === 2 ? 0.32 : 0.2); }
+
+(function dressHospital() {
+  const STATIC = new THREE.Group(), taken = [], wallUsed = new Set(), dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  // furniture along the walls of straight corridors and dead ends (always leaves 1.4 m free in the middle)
+  const cells = FREE.filter(c => c.ch === '.' && (isFreeCell(c.c - 1, c.r) || isFreeCell(c.c + 1, c.r)) !== (isFreeCell(c.c, c.r - 1) || isFreeCell(c.c, c.r + 1))).sort(() => Math.random() - 0.5);
+  const kinds = ['gurneyBody', 'bed', 'chair', 'iv', 'cart', 'gurneyBody', 'gurney', 'iv', 'chair', 'bed', 'cart', 'gurneyBody', 'iv'];
+  for (const c of cells) { if (taken.length >= kinds.length) break; if (taken.some(t => Math.abs(t.c - c.c) + Math.abs(t.r - c.r) < 2)) continue;
+    const horiz = isFreeCell(c.c - 1, c.r) || isFreeCell(c.c + 1, c.r); let side = horiz ? [0, Math.random() < 0.5 ? 1 : -1] : [Math.random() < 0.5 ? 1 : -1, 0];
+    if (MAP[c.r + side[1]][c.c + side[0]] !== '#') side = [-side[0], -side[1]]; if (MAP[c.r + side[1]][c.c + side[0]] !== '#') continue;
+    const kind = kinds[taken.length], long = kind.startsWith('gurney') || kind === 'bed';
+    const obj = kind === 'chair' ? buildWheelchair() : kind === 'iv' ? buildIV(Math.random() < 0.5) : kind === 'cart' ? buildCart() : buildGurney(kind === 'gurneyBody' ? true : Math.random() < 0.5 ? false : null, kind === 'bed');
+    const depth = long ? 0.36 : kind === 'cart' ? 0.26 : 0.32, len = long ? 1.0 : kind === 'cart' ? 0.34 : 0.32;
+    const off = CELL / 2 - depth - 0.04, along = long ? rand(-0.05, 0.05) : rand(-0.4, 0.4);
+    const x = c.x + side[0] * off + (horiz ? along : 0), z = c.z + side[1] * off + (horiz ? 0 : along);
+    obj.position.set(x, 0, z); obj.rotation.y = long ? (horiz ? Math.PI / 2 : 0) + rand(-0.05, 0.05) : Math.atan2(-side[0], -side[1]) + rand(-0.5, 0.5);
+    STATIC.add(obj); taken.push(c); wallUsed.add(key(c.c, c.r) + ':' + side); solids.push(horiz ? { x, z, hx: len, hz: depth } : { x, z, hx: depth, hz: len }); }
+  // the morgue: double steel doors at the end of the dead end where the key card is
+  const kc = keys[0], kcell = FREE.find(f => f.c === kc.c && f.r === kc.r), open = dirs.find(([dc, dr]) => isFreeCell(kc.c + dc, kc.r + dr)), mw = [-open[0], -open[1]];
+  STATIC.add(wallPlane(kcell, mw[0], mw[1], 1.95, 2.36, 1.18, flatMat(doubleDoorCanvas('MORGUE', true)))); wallUsed.add(key(kc.c, kc.r) + ':' + mw);
+  const spots = []; for (const c of FREE) { if (/[LED]/.test(c.ch)) continue; for (const [dc, dr] of dirs) if (MAP[c.r + dr]?.[c.c + dc] === '#' && !wallUsed.has(key(c.c, c.r) + ':' + [dc, dr])) spots.push({ c, dc, dr }); }
+  spots.sort(() => Math.random() - 0.5);
+  const doorMats = [0, 1, 2, 3, 4, 5].map(i => flatMat(doorCanvas('HAB ' + (200 + Math.floor(rand(1, 40))), i === 0)));
+  const orMat = flatMat(doubleDoorCanvas('QUIRÓFANO', false));
+  const SIGNS = [['QUIRÓFANO →', '#8f1016'], ['← MORGUE', '#1a1a1a'], ['PEDIATRÍA', '#2a6a9a'], ['RAYOS X', '#c8a020'], ['TERAPIA INTENSIVA', '#8f1016'], ['URGENCIAS →', '#8f1016'], ['SALA DE ESPERA', '#2a6a9a'], ['SILENCIO', '#3a6a4a'], ['PABELLÓN C', '#2a6a9a']];
+  let si = 0, di = 0, mi = 0;
+  spots.forEach((sp, i) => { const k = i % 5;
+    if (k === 0 || k === 2) { if (di++ < 16) STATIC.add(wallPlane(sp.c, sp.dc, sp.dr, di % 6 === 3 ? 1.85 : 1.0, di % 6 === 3 ? 2.24 : 2.15, di % 6 === 3 ? 1.12 : 1.075, di % 6 === 3 ? orMat : doorMats[di % 6], rand(-0.35, 0.35) * (di % 6 === 3 ? 0 : 1))); }
+    else if (k === 1) { if (si < SIGNS.length) { const [t, col] = SIGNS[si++]; STATIC.add(wallPlane(sp.c, sp.dc, sp.dr, 1.1, 0.275, 2.42, flatMat(signCanvas(t, col)), rand(-0.4, 0.4))); } }
+    else if (k === 3) { if (mi++ < 5) addMonitor(STATIC, sp.c, sp.dc, sp.dr); } });
+  // ceiling: missing tiles, tiles hanging open, loose cables, dead tubes; floor: papers and dark puddles
+  const lit = new Set([[3, 1], [9, 3], [2, 5], [9, 9], [12, 7]].map(([c, r]) => key(c, r))), rnd = () => FREE[Math.floor(Math.random() * FREE.length)];
+  for (let i = 0; i < 18; i++) { const c = rnd(), x = c.x + rand(-0.6, 0.6), z = c.z + rand(-0.6, 0.6);
+    const hole = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6).rotateX(Math.PI / 2), HM.hole); hole.position.set(x, WALL_H - 0.004, z); STATIC.add(hole);
+    if (i % 3 === 0) { const t = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6).rotateX(Math.PI / 2).translate(0, 0, 0.3), HM.tile); t.position.set(x, WALL_H - 0.01, z - 0.3); t.rotation.x = rand(0.6, 1.3); STATIC.add(t); }
+    else if (i % 3 === 1) { const L = rand(0.4, 1.1); STATIC.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new V3(x, WALL_H, z), new V3(x + 0.15, WALL_H - L * 0.7, z + 0.05), new V3(x + 0.3, WALL_H - L, z + 0.1), new V3(x + 0.45, WALL_H - L * 0.6, z + 0.12)]), 16, 0.008, 4), HM.cable)); } }
+  for (const c of FREE) { if (lit.has(key(c.c, c.r)) || Math.random() > 0.3) continue; const f = new THREE.Group();
+    f.add(new THREE.Mesh(housingGeo, fixtureMat), new THREE.Mesh(tubeGeo, HM.deadTube)); f.position.set(c.x, WALL_H, c.z); f.rotation.y = isFreeCell(c.c - 1, c.r) || isFreeCell(c.c + 1, c.r) ? 0 : Math.PI / 2;
+    if (Math.random() < 0.35) { f.rotation.z = rand(0.4, 0.7) * (Math.random() < 0.5 ? 1 : -1); f.position.y = WALL_H - 0.33; STATIC.add(bone(new V3(c.x, WALL_H, c.z), new V3(c.x, WALL_H - 0.05, c.z), 0.004, 0.004, HM.cable, 3)); }
+    STATIC.add(f); }
+  for (let i = 0; i < 60; i++) { const c = rnd(), p = new THREE.Mesh(new THREE.PlaneGeometry(0.21, 0.28).rotateX(-Math.PI / 2), HM.paper); p.position.set(c.x + rand(-0.95, 0.95), 0.003, c.z + rand(-0.95, 0.95)); p.rotation.y = rand(0, 6.28); STATIC.add(p); }
+  for (let i = 0; i < 10; i++) { const c = rnd(), p = new THREE.Mesh(new THREE.CircleGeometry(rand(0.25, 0.6), 18).rotateX(-Math.PI / 2), HM.puddle); p.position.set(c.x + rand(-0.5, 0.5), 0.002, c.z + rand(-0.5, 0.5)); p.scale.z = rand(0.5, 1); STATIC.add(p); }
+  bakeInto(STATIC);
+})();
+
 /* ================= PLAYER / INPUT ================= */
 let yaw = -Math.PI / 2, pitch = 0;
 dolly.position.set(cx(start[0]), 0, cz(start[1]));
@@ -639,7 +894,8 @@ walkBtn.addEventListener('pointerup', () => { input.walk = 0; }); walkBtn.addEve
 
 const headPos = new V3(), tmpV = new V3(), tmpQ = new THREE.Quaternion(), camDir = new V3();
 function getHead() { camera.getWorldPosition(headPos); return headPos; }
-function blocked(x, z, rad = 0.32) { for (const l of lockers) if (Math.abs(x - l.x) < 0.5 && Math.abs(z - l.z) < 0.5) return true; for (const [ox, oz] of [[-rad, -rad], [rad, -rad], [-rad, rad], [rad, rad]]) { const ch = cellAt(x + ox, z + oz); if (ch === '#' || (ch === 'D' && !doorOpen)) return true; } return false; }
+function blocked(x, z, rad = 0.32) { for (const l of lockers) if (Math.abs(x - l.x) < 0.5 && Math.abs(z - l.z) < 0.5) return true;
+  for (const o of solids) if (Math.abs(x - o.x) < o.hx + rad * 0.6 && Math.abs(z - o.z) < o.hz + rad * 0.6) return true; for (const [ox, oz] of [[-rad, -rad], [rad, -rad], [-rad, rad], [rad, rad]]) { const ch = cellAt(x + ox, z + oz); if (ch === '#' || (ch === 'D' && !doorOpen)) return true; } return false; }
 function tryMove(dx, dz) { const h = getHead(); const bx = blocked(h.x + dx, h.z); if (!bx) dolly.position.x += dx; if (!blocked(h.x + (bx ? 0 : dx), h.z + dz)) dolly.position.z += dz; }
 function forwardXZ() { camera.getWorldDirection(tmpV); tmpV.y = 0; return tmpV.lengthSq() < 1e-6 ? tmpV.set(0, 0, -1) : tmpV.normalize(); }
 function los(a, b) { const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz), n = Math.ceil(d / 0.2);
@@ -666,7 +922,7 @@ function vrInput(dt) {
 function snapTurn(a) { const before = getHead().clone(); dolly.rotation.y += a; dolly.updateMatrixWorld(true); const after = getHead(); dolly.position.x += before.x - after.x; dolly.position.z += before.z - after.z; }
 
 /* ================= AUDIO: synthesized, 3D (HRTF) ================= */
-let AC = null, master, amb, fx, droneGain, droneFilter, windGain, hbGain;
+let AC = null, master, amb, fx, droneGain, droneFilter, windGain, hbGain, humGain;
 function initAudio() {
   if (AC) return; AC = new (window.AudioContext || window.webkitAudioContext)();
   master = AC.createGain(); master.gain.value = 0.95; master.connect(AC.destination);
@@ -677,6 +933,8 @@ function initAudio() {
   const ns = AC.createBufferSource(); ns.buffer = noiseBuffer(4); ns.loop = true; const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 400; bp.Q.value = 0.6;
   windGain = AC.createGain(); windGain.gain.value = 0.06; ns.connect(bp); bp.connect(windGain); windGain.connect(amb); ns.start();
   hbGain = AC.createGain(); hbGain.gain.value = 0; hbGain.connect(amb);
+  humGain = AC.createGain(); humGain.gain.value = 0.022; const hf = AC.createBiquadFilter(); hf.type = 'bandpass'; hf.frequency.value = 240; hf.Q.value = 2;   // fluorescent hum
+  [120, 240.5, 360].forEach(f => { const o = AC.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(hf); o.start(); }); hf.connect(humGain); humGain.connect(amb);
 }
 function noiseBuffer(sec) { const b = AC.createBuffer(1, AC.sampleRate * sec, AC.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; return b; }
 function env(node, t, a, peak, dec) { node.gain.setValueAtTime(0.0001, t); node.gain.exponentialRampToValueAtTime(peak, t + a); node.gain.exponentialRampToValueAtTime(0.0001, t + a + dec); }
@@ -739,6 +997,29 @@ function sfxRoar(dest) { sfxGrowl(dest, 1.6); if (AC) sfxScream(dest); }
 function sfxScrape(dest) { if (!AC) return; const s = AC.createBufferSource(); s.buffer = noiseBuffer(1.4); const fl = AC.createBiquadFilter(); fl.type = 'bandpass'; fl.frequency.value = 2600; fl.Q.value = 5;
   const g = AC.createGain(), am = AC.createOscillator(), ag = AC.createGain(); am.frequency.value = 13; ag.gain.value = 0.12; am.connect(ag); ag.connect(g.gain); s.connect(fl); fl.connect(g); g.connect(dest || fx);
   g.gain.setValueAtTime(0.0001, AC.currentTime); g.gain.linearRampToValueAtTime(0.25, AC.currentTime + 0.3); g.gain.linearRampToValueAtTime(0.0001, AC.currentTime + 1.3); s.start(); am.start(); s.stop(AC.currentTime + 1.4); am.stop(AC.currentTime + 1.4); }
+function sfxBeep(dest, f = 960, vol = 0.2) { if (!AC) return; const o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime; o.frequency.value = f; o.connect(g); g.connect(dest || fx);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.005); g.gain.setValueAtTime(vol, t + 0.08); g.gain.linearRampToValueAtTime(0.0001, t + 0.1); o.start(t); o.stop(t + 0.12); }
+function sfxFlatline(sec = 3) { if (!AC) return; const o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime; o.frequency.value = 1000; o.connect(g); g.connect(fx);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.3, t + 0.02); g.gain.setValueAtTime(0.3, t + sec); g.gain.linearRampToValueAtTime(0.0001, t + sec + 0.05); o.start(t); o.stop(t + sec + 0.1); }
+function sfxSqueak(dest, vol = 0.22) { if (!AC) return; const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain(), bp = AC.createBiquadFilter(), f0 = rand(1500, 2300);
+  o.type = 'triangle'; o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f0 * rand(1.08, 1.25), t + 0.16); bp.type = 'bandpass'; bp.frequency.value = f0; bp.Q.value = 3;
+  o.connect(bp); bp.connect(g); g.connect(dest || fx); env(g, t, 0.02, vol, 0.17); o.start(t); o.stop(t + 0.25); }
+function sfxRoll(dest, dur = 1.5, vol = 0.5) { if (!AC) return; noiseHit(dur, 170, 0.8, vol, 'lowpass', dest); }
+function sfxClatter(dest) { if (!AC) return; sfxSlam(dest); for (let i = 0; i < 8; i++) noiseHit(0.12, rand(2500, 5000), 3, 0.5, 'bandpass', dest, rand(0, 0.5)); }
+function sfxClink(dest) { if (!AC) return; for (let i = 0; i < 4; i++) { const t = AC.currentTime + rand(0, 0.5);
+  [1, 1.53].forEach(m => { const o = AC.createOscillator(), g = AC.createGain(); o.frequency.value = rand(2300, 3100) * m; o.connect(g); g.connect(dest || fx); env(g, t, 0.002, 0.07, 0.22); o.start(t); o.stop(t + 0.3); }); } }
+function sfxRattle(dest) { if (!AC) return; for (let i = 0; i < 16; i++) noiseHit(0.025, 3600, 4, 0.7, 'bandpass', dest, i * 0.016 + rand(0, 0.01)); noiseHit(0.35, 900, 0.7, 0.5, 'bandpass', dest); }
+function sfxDrip(dest) { if (!AC) return; for (let i = 0; i < 3; i++) { const t = AC.currentTime + i * rand(0.5, 0.9), o = AC.createOscillator(), g = AC.createGain();
+  o.frequency.setValueAtTime(rand(1100, 1600), t); o.frequency.exponentialRampToValueAtTime(rand(400, 600), t + 0.06); o.connect(g); g.connect(dest || fx); env(g, t, 0.002, 0.18, 0.08); o.start(t); o.stop(t + 0.12); } }
+function sfxPA(dest, vol = 1) { if (!AC) return; const t0 = AC.currentTime, bus = AC.createGain(), bp = AC.createBiquadFilter(), ws = AC.createWaveShaper(), c = new Float32Array(256);   // hospital speaker: chime + garbled voice
+  for (let i = 0; i < 256; i++) c[i] = Math.tanh((i / 128 - 1) * 3); ws.curve = c; bp.type = 'bandpass'; bp.frequency.value = 1300; bp.Q.value = 0.8; bus.gain.value = vol;
+  bus.connect(ws); ws.connect(bp); bp.connect(dest || fx);
+  [659, 523, 392].forEach((f, i) => { const o = AC.createOscillator(), g = AC.createGain(), t = t0 + i * 0.55; o.frequency.value = f; o.connect(g); g.connect(bus); env(g, t, 0.01, 0.25, 0.9); o.start(t); o.stop(t + 1); });
+  let t = t0 + 1.9; for (let k = 0; k < 14; k++) { const d = rand(0.1, 0.24), o = AC.createOscillator(), f1 = AC.createBiquadFilter(), g = AC.createGain(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(rand(95, 140), t); o.frequency.linearRampToValueAtTime(rand(80, 130), t + d); f1.type = 'bandpass'; f1.frequency.setValueAtTime(rand(500, 900), t); f1.frequency.linearRampToValueAtTime(rand(900, 2000), t + d); f1.Q.value = 4;
+    o.connect(f1); f1.connect(g); g.connect(bus); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.55, t + 0.02); g.gain.linearRampToValueAtTime(0.0001, t + d); o.start(t); o.stop(t + d + 0.02);
+    t += d + (Math.random() < 0.2 ? rand(0.15, 0.35) : rand(0.01, 0.05)); }
+  noiseHit(t - t0 - 1.7, 2000, 0.5, 0.05, 'bandpass', bus, 1.8); }
 function sfxPickup() { if (!AC) return; [660, 990].forEach((f, i) => { const o = AC.createOscillator(), g = AC.createGain(); o.type = 'triangle'; o.frequency.value = f; o.connect(g); g.connect(fx);
   env(g, AC.currentTime + i * 0.09, 0.01, 0.15, 0.4); o.start(AC.currentTime + i * 0.09); o.stop(AC.currentTime + i * 0.09 + 0.5); }); }
 
@@ -774,7 +1055,7 @@ function stepHeart(dt) {
   sim.t += dt; sim.spike *= Math.exp(-dt / 9);
   const rsa = $('natural').checked ? 3 * Math.sin(sim.t * 2 * Math.PI * 0.25) + (Math.random() - 0.5) * 1.5 : 0;
   sim.hr = clamp(sim.rest + sim.spike + rsa, 40, 190); sim.phase += sim.hr / 60 * dt;
-  if (sim.phase >= 1) { sim.phase -= 1; const rr = sim.t - lastBeatT; lastBeatT = sim.t; sim.beats.push(sim.t); if (sim.beats.length > 6) sim.beats.shift(); if (rr > 0.25) onBeat(rr); }
+  if (sim.phase >= 1) { sim.phase -= 1; const rr = sim.t - lastBeatT; lastBeatT = sim.t; sim.beats.push(sim.t); if (sim.beats.length > 6) sim.beats.shift(); monitorBeep(); if (rr > 0.25) onBeat(rr); }
   $('hrVal').textContent = Math.round(sim.hr);
   $('bProg').firstElementChild.style.width = algo.collecting ? Math.min(100, (sim.t - algo.collectStart) / algo.collectDur * 100) + '%' : algo.baseline ? '100%' : '0';
   $('baseVal').textContent = algo.baseline ? algo.baseline.toFixed(0) + ' lpm' : '—';
@@ -821,9 +1102,9 @@ function bfs(from, skipKey) { const dist = new Map([[key(...from), 0]]), q = [fr
 
 /* ================= ENEMIES =================
    Each one is a different kind of fear:
-   - La Señora de negro: sudden terror. Only screamers; she never chases or attacks.
-   - El Reptante: paranoia. Only on the ceiling; appears often and unpredictably, watches you, vanishes.
-   - El Carnicero: fear of being found. Patrols, sees you, hunts you; break his line of sight or hide in a locker. */
+   - La Enfermera (DAMA): sudden terror. Only screamers; she never chases or attacks.
+   - El Paciente (R): paranoia. Only on the ceiling; appears often and unpredictably, watches you, vanishes.
+   - El Cirujano (K): fear of being found. Patrols with a head lamp, sees you, hunts you; break his line of sight or hide in a supply cabinet. */
 const pickW = w => { const ks = Object.keys(w).filter(k => w[k] > 0), tot = ks.reduce((a, k) => a + w[k], 0); if (!ks.length) return null;
   let r = Math.random() * tot; for (const k of ks) { r -= w[k]; if (r <= 0) return k; } return ks.at(-1); };
 function moveToward(g, tx, tz, speed, dt) { const p = g.position, dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz); if (d < 0.01) return d;
@@ -844,9 +1125,13 @@ const cellOf = (x, z) => [Math.floor(x / CELL), Math.floor(z / CELL)];
 const DAMA = { name: 'dama', g: new THREE.Group(), state: 'off', mode: 'still' }; DAMA.rig = buildDama(DAMA.g); DAMA.g.scale.setScalar(0.86); DAMA.g.visible = false; scene.add(DAMA.g);
 const R = { name: 'reptante', g: new THREE.Group(), state: 'off', mode: 'idle' }; R.rig = buildReptante(R.g); R.g.visible = false; scene.add(R.g);
 const K = { name: 'carnicero', g: new THREE.Group(), state: 'off', mode: 'idle', detect: 0 }; K.rig = buildCarnicero(K.g); K.g.visible = false; scene.add(K.g);
+const lampLight = new THREE.SpotLight(0xe6f2ff, 0, 15, 0.3, 0.45, 1.4); scene.add(lampLight, lampLight.target);
+function lampStep() { if (!K.g.visible) { lampLight.intensity = 0; return; } K.g.updateMatrixWorld(true); K.rig.lens.getWorldPosition(lampLight.position); K.rig.lampAim.getWorldPosition(lampLight.target.position);
+  lampLight.intensity = (K.state === 'chase' ? 14 : 10) * (Math.random() < 0.03 ? 0.3 : 1); }
 
 /* ---------- lockers: the only safe place ---------- */
-const lockerMat = (() => { const cv = makeCanvas(128, 256), g = cv.getContext('2d'); g.fillStyle = '#3c4943'; g.fillRect(0, 0, 128, 256); grain(g, 128, 256, 26);
+const lockerMat = (() => { const cv = makeCanvas(128, 256), g = cv.getContext('2d'); g.fillStyle = '#77756c'; g.fillRect(0, 0, 128, 256); grain(g, 128, 256, 26); g.fillStyle = '#8c1018'; g.fillRect(56, 92, 16, 44); g.fillRect(42, 106, 44, 16);
+  g.fillStyle = '#1d1d1b'; g.font = 'bold 15px Arial'; g.textAlign = 'center'; g.fillText('INSUMOS', 64, 160);
   for (let y = 22; y < 74; y += 8) { g.fillStyle = 'rgba(0,0,0,.8)'; g.fillRect(26, y, 76, 3); }
   for (let y = 180; y < 232; y += 8) { g.fillStyle = 'rgba(0,0,0,.8)'; g.fillRect(26, y, 76, 3); }
   blotches(g, 128, 12, 22, 'rgba(95,52,20,.5)'); g.fillStyle = 'rgba(15,15,15,.85)'; g.fillRect(100, 118, 8, 28); g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 3; g.strokeRect(4, 4, 120, 248);
@@ -1031,22 +1316,78 @@ function chaserStep(dt) {
       break; }
     case 'leave': K.mode = 'walk'; if (followPath(1.2, dt)) endHunt('se_fue'); break;
     case 'attack': faceTo(K.g, h); if (sim.t > KC.until) { K.state = 'drag'; K.mode = 'idle'; KC.until = sim.t + 1.8; veilTarget = 1; K.g.visible = false; KC.moved = false; } return;
-    case 'drag': if (sim.t > KC.until - 0.9 && !KC.moved) { KC.moved = true; dragAway(); toast('Te arrastró a otra parte', 2.5); } if (sim.t > KC.until) { veilTarget = 0; endHunt('atrapado'); } return;
+    case 'drag': if (sim.t > KC.until - 0.9 && !KC.moved) { KC.moved = true; dragAway(); toast('El cirujano te arrastró a otra parte', 2.5); } if (sim.t > KC.until) { veilTarget = 0; endHunt('atrapado'); } return;
   }
   // he warns you he is near, without always telling you where
   const moving = K.mode === 'walk' || K.mode === 'run';
   if (moving) { KC.stepAcc += dt; if (KC.stepAcc > (K.mode === 'run' ? 0.33 : 0.58)) { KC.stepAcc = 0; if (K.mode === 'run' || d < 7 || Math.random() > 0.35) sfxHeavyStep(at(p.x, 0.05, p.z), K.mode === 'run' ? 1.3 : 0.9); } }
   if (sim.t > KC.nextBreath && d < 12) { KC.nextBreath = sim.t + rand(2.5, 4.5) * (K.mode === 'run' ? 0.5 : 1); sfxBreathDeep(at(p.x, 1.9, p.z)); }
-  if (K.state === 'patrol' && Math.random() < dt * 0.07) sfxScrape(at(p.x, 0.4, p.z));
+  if (K.state === 'patrol' && Math.random() < dt * 0.06) sfxScrape(at(p.x, 0.4, p.z));
+  if (K.state !== 'chase' && Math.random() < dt * 0.08) sfxClink(at(p.x, 1.1, p.z));     // surgical instruments clinking on his belt
+}
+
+/* ---------- scare props: a gurney that rolls at you, a wheelchair that follows you, a curtain that whips shut ---------- */
+const GURNEY = { g: buildGurney(true), state: 'off' }; GURNEY.g.visible = false; scene.add(GURNEY.g);
+const CHAIR = { g: buildWheelchair(), state: 'off' }; CHAIR.g.visible = false; scene.add(CHAIR.g);
+const curtainMat = (() => { const cv = makeCanvas(256), g = cv.getContext('2d'); g.fillStyle = '#4a5d56'; g.fillRect(0, 0, 256, 256); grain(g, 256, 256, 20);
+  for (let x = 0; x < 256; x += 8) { g.fillStyle = `rgba(10,18,15,${0.12 + 0.12 * Math.sin(x / 8)})`; g.fillRect(x, 0, 4, 256); }
+  blotches(g, 256, 8, 40, 'rgba(100,85,40,.4)'); blotches(g, 256, 5, 24, 'rgba(80,6,8,.65)'); g.drawImage(bloodCanvas(null), 40, 60, 180, 90);
+  return new THREE.MeshStandardMaterial({ map: texFrom(cv, 2, 1), roughness: 0.95, side: THREE.DoubleSide, transparent: true, opacity: 0.94 }); })();
+const CURT = { pivot: new THREE.Group(), state: 'off' };
+(function () { const geo = new THREE.PlaneGeometry(2.25, 2.5, 44, 22).translate(1.125, 1.42, 0), p = geo.attributes.position; for (let i = 0; i < p.count; i++) p.setZ(i, 0.07 * Math.sin(p.getX(i) * 13));
+  geo.computeVertexNormals(); CURT.base = Float32Array.from(p.array); CURT.mesh = new THREE.Mesh(geo, curtainMat);
+  CURT.pivot.add(CURT.mesh, new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 2.3, 6).rotateZ(Math.PI / 2).translate(1.12, 2.7, 0), HM.metal));
+  CURT.pivot.visible = false; scene.add(CURT.pivot); })();
+function gurneyScare() { const { h, f, d } = freeAhead(9), D0 = Math.min(d, 7); if (D0 < 3.4) return false;
+  const g = GURNEY.g; g.position.set(h.x + f.x * D0, 0, h.z + f.z * D0); g.rotation.y = Math.atan2(f.x, f.z); g.visible = true;
+  Object.assign(GURNEY, { state: 'roll', from: g.position.clone(), to: new V3(h.x + f.x * 1.6, 0, h.z + f.z * 1.6), t0: sim.t + 0.45, dur: (D0 - 1.6) / 3.4, nextSq: 0, rolling: false });
+  blackoutUntil = sim.t + 0.4; return true; }
+function chairScare() { const p = spotBehind([1.6, 2.0], true); if (!p) return false; const g = CHAIR.g; g.position.set(p.x, 0, p.z); faceTo(g, getHead()); g.visible = true;
+  Object.assign(CHAIR, { state: 'wait', t0: sim.t }); sfxSqueak(at(p.x, 0.3, p.z), 0.32); setTimeout(() => { if (CHAIR.state === 'wait') sfxSqueak(at(p.x, 0.3, p.z), 0.32); }, 380); return true; }
+function curtainScare() { const f = forwardXZ(), ax = Math.abs(f.x) > Math.abs(f.z) ? [Math.sign(f.x), 0] : [0, Math.sign(f.z)], pc = playerCell(), h = getHead(), pr = [-ax[1], ax[0]];
+  for (const k of [1, 2]) { const c = pc[0] + ax[0] * k, r = pc[1] + ax[1] * k; if (!isFreeCell(c, r)) return false;
+    if (isFreeCell(c + pr[0], r + pr[1]) || isFreeCell(c - pr[0], r - pr[1])) continue;
+    const x = cx(c), z = cz(r); if (Math.hypot(x - h.x, z - h.z) < 1.4) continue;
+    CURT.pivot.position.set(x - pr[0] * CELL / 2, 0, z - pr[1] * CELL / 2); CURT.pivot.rotation.y = Math.atan2(-pr[1], pr[0]); CURT.mesh.scale.x = 0.06; CURT.pivot.visible = true;
+    CURT.side = Math.sign((h.x - x) * Math.sin(CURT.pivot.rotation.y) + (h.z - z) * Math.cos(CURT.pivot.rotation.y)) || 1;
+    Object.assign(CURT, { state: 'sweep', t0: sim.t, c: { x, z }, breath: false, bulged: false }); sfxRattle(at(x, 2.6, z)); return true; }
+  return false; }
+function scarePropsStep(dt) { const h = getHead();
+  if (GURNEY.state === 'roll' && sim.t > GURNEY.t0) { const g = GURNEY.g, k = clamp((sim.t - GURNEY.t0) / GURNEY.dur, 0, 1);
+    if (!GURNEY.rolling) { GURNEY.rolling = true; sfxRoll(atV(g.position, 0.3), GURNEY.dur + 0.3, 0.7); logEvent('camilla'); }
+    g.position.lerpVectors(GURNEY.from, GURNEY.to, (k * k + k) / 2);
+    if (sim.t > GURNEY.nextSq) { GURNEY.nextSq = sim.t + 0.2; sfxSqueak(atV(g.position, 0.3), 0.28); }
+    if (k >= 1) { GURNEY.state = 'rest'; GURNEY.restT = sim.t; sfxClatter(atV(g.position, 0.8)); heartReact(16); flickerUntil = sim.t + 0.8; buzzAll(0.7, 250); } }
+  else if (GURNEY.state === 'rest' && sim.t - GURNEY.restT > 4 && !inView({ x: GURNEY.g.position.x, y: 0.9, z: GURNEY.g.position.z }, 0.2) && GURNEY.g.position.distanceTo(new V3(h.x, 0, h.z)) > 3) { GURNEY.state = 'off'; GURNEY.g.visible = false; }
+  if (CHAIR.state === 'wait') { const p = CHAIR.g.position;
+    if (inView({ x: p.x, y: 0.7, z: p.z }, 0.55)) { const d = Math.hypot(h.x - p.x, h.z - p.z) || 1; Object.assign(CHAIR, { state: 'lunge', t0: sim.t, from: p.clone(), to: new V3(p.x + (h.x - p.x) / d * 0.6, 0, p.z + (h.z - p.z) / d * 0.6) });
+      sfxRoll(at(p.x, 0.3, p.z), 0.4, 0.8); sfxSqueak(at(p.x, 0.3, p.z), 0.4); flickerUntil = sim.t + 0.4; heartReact(14); logEvent('silla'); }
+    else if (sim.t - CHAIR.t0 > 12) { CHAIR.state = 'off'; CHAIR.g.visible = false; } }
+  else if (CHAIR.state === 'lunge') { const k = clamp((sim.t - CHAIR.t0) / 0.3, 0, 1); CHAIR.g.position.lerpVectors(CHAIR.from, CHAIR.to, 1 - (1 - k) * (1 - k)); if (k >= 1) { CHAIR.state = 'rest'; CHAIR.restT = sim.t; } }
+  else if (CHAIR.state === 'rest' && sim.t - CHAIR.restT > 3 && !inView({ x: CHAIR.g.position.x, y: 0.7, z: CHAIR.g.position.z }, 0.2)) { CHAIR.state = 'off'; CHAIR.g.visible = false; }
+  if (CURT.state !== 'off') { const e = sim.t - CURT.t0;
+    CURT.mesh.scale.x = Math.min(1, 0.06 + e / 0.2);
+    if (CURT.state === 'sweep' && e > 0.22) { CURT.state = 'still'; sfxSlam(at(CURT.c.x, 1.4, CURT.c.z)); heartReact(10); logEvent('cortina'); }
+    // a moment later a face and two hands press through the cloth from the other side
+    const b = e < 1.2 ? 0 : e < 1.6 ? (e - 1.2) / 0.4 : e < 3.2 ? 1 : e < 3.6 ? 1 - (e - 3.2) / 0.4 : 0;
+    if (e > 1.2 && !CURT.breath) { CURT.breath = true; sfxBreath(at(CURT.c.x, 1.6, CURT.c.z), 2); heartReact(8); }
+    if (b > 0 || CURT.bulged) { CURT.bulged = b > 0; const p = CURT.mesh.geometry.attributes.position, B = CURT.base;
+      for (let i = 0; i < p.count; i++) { const dx = B[i * 3] - 1.125, dy = B[i * 3 + 1] - 1.62;
+        const w = Math.exp(-(dx * dx / 0.011 + dy * dy / 0.022)) + 0.7 * Math.exp(-((dx - 0.32) ** 2 / 0.006 + (dy + 0.1) ** 2 / 0.012)) + 0.7 * Math.exp(-((dx + 0.3) ** 2 / 0.006 + (dy + 0.04) ** 2 / 0.012));
+        p.setZ(i, B[i * 3 + 2] + CURT.side * b * 0.2 * w); }
+      p.needsUpdate = true; CURT.mesh.geometry.computeVertexNormals(); }
+    if (e > 6 && !inView({ x: CURT.c.x, y: 1.4, z: CURT.c.z }, 0.25) && Math.hypot(CURT.c.x - h.x, CURT.c.z - h.z) > 3) { CURT.state = 'off'; CURT.pivot.visible = false; } }
 }
 
 /* ---------- fixed scares: same places for every player (they wait if a big event is running) ---------- */
 const SCARES = {
-  1: () => { flickerUntil = sim.t + 2.5; const h = getHead(); sfxScream(at(h.x + 8, 1.5, h.z)); },
-  2: () => { if (startScream('ahead', 1.4)) sfxWhisper(); },
-  3: () => { const h = getHead(), f = forwardXZ(); sfxSlam(at(h.x - f.x * 2, 1.5, h.z - f.z * 2)); blackoutUntil = sim.t + 1.2; },
-  4: () => { startScream('front'); },
-  5: () => { blackoutUntil = sim.t + 2.2; sfxWhisper(); setTimeout(() => { if (running && startScream('front', 0.9)) sfxStinger(); }, 2200); },
+  1: () => { if (!gurneyScare()) { flickerUntil = sim.t + 2.5; const h = getHead(); sfxSqueak(at(h.x + 6, 0.3, h.z), 0.4); } },
+  2: () => { if (chairScare()) sfxWhisper(); else if (startScream('ahead', 1.4)) sfxWhisper(); },
+  3: () => { if (!curtainScare()) { const h = getHead(), f = forwardXZ(); sfxSlam(at(h.x - f.x * 2, 1.5, h.z - f.z * 2)); blackoutUntil = sim.t + 1.2; } },
+  4: () => { MON.flat = sim.t + 2.6; silence(2.6); sfxFlatline(2.4); flickerUntil = sim.t + 2.4;      // every monitor flatlines... then she is there
+    setTimeout(() => { if (!running) return; blackoutUntil = sim.t + 0.3; setTimeout(() => { if (running) startScream('front') || startScream('turn'); }, 300); }, 2300); },
+  5: () => { const h = getHead(); sfxPA(at(h.x, WALL_H, h.z)); setTimeout(() => { if (!running) return; blackoutUntil = sim.t + 2.2; sfxWhisper();
+    setTimeout(() => { if (running && startScream('front', 0.9)) sfxStinger(); }, 2200); }, 4800); },
 };
 function fireScare(tr) { tr.fired = true; SCARES[tr.id](); logEvent('scare', 'S' + tr.id); setTimeout(() => heartReact(rand(18, 30)), 400); }
 
@@ -1068,7 +1409,7 @@ function startMajor() {
   else DIR.T = 0.8;
 }
 function endMajor(type, scale = 1) { DIR.last[type] = sim.t; DIR.major = ''; DIR.phase = 'relief'; DIR.until = sim.t + rand(14, 24) * (1 - 0.35 * hrAro) * scale; logEvent('director', 'alivio'); }
-const AMB_W = { stepsPass: 1, knock: 1, scream: 0.6, whisperEar: 1, scratchAbove: 1.3, slamFar: 0.7, breathBehind: 0.9, flicker: 1, blackout: 0.5 };
+const AMB_W = { stepsPass: 1, knock: 0.8, scream: 0.5, whisperEar: 1, scratchAbove: 1.3, slamFar: 0.6, breathBehind: 0.9, flicker: 1, blackout: 0.5, pa: 0.5, gurneyFar: 0.8, drip: 0.9, beepFar: 0.7 };
 function directorStep(dt) {
   if (!running || !algo.baseline) return;
   if (!isFinite(DIR.nextCeil)) { DIR.nextCeil = sim.t + rand(5, 10); DIR.nextAmb = sim.t + rand(4, 9); DIR.nextPop = sim.t + rand(16, 28); DIR.trigger = rand(0.65, 1.0); }
@@ -1093,7 +1434,7 @@ function directorStep(dt) {
 
 /* ================= FEAR FACTORS THAT FOLLOW THE HEART ================= */
 // --- blood and messages that appear on the walls behind you ---
-const MESSAGES = ['TE OIGO LATIR', 'NO CORRAS', 'DETRÁS DE TI', 'TU CORAZÓN TE DELATA', 'MÁS RÁPIDO', 'YA CASI', 'QUÉDATE'];
+const MESSAGES = ['TE OIGO LATIR', 'NADIE SALE DE ALTA', 'DETRÁS DE TI', 'TU PULSO TE DELATA', 'CÓDIGO AZUL', 'PACIENTE 13', 'QUÉDATE'];
 function bloodCanvas(text) { const cv = makeCanvas(512, 256), g = cv.getContext('2d'); g.fillStyle = 'rgba(120,6,10,0.92)'; g.strokeStyle = 'rgba(90,4,8,0.9)';
   if (text) { g.font = 'bold ' + (text.length > 12 ? 52 : 70) + 'px Impact, "Arial Black", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.save(); g.translate(256, 110); g.rotate(rand(-0.06, 0.06));
     g.shadowColor = 'rgba(60,0,0,.8)'; g.shadowBlur = 6; g.fillText(text, 0, 0); g.restore();
@@ -1146,10 +1487,15 @@ const AMBIENT = {
   breathBehind() { const h = getHead(), f = forwardXZ(); sfxBreath(at(h.x - f.x * 0.8, h.y, h.z - f.z * 0.8), 2); },
   flicker() { flickerUntil = sim.t + 1.6; },
   blackout() { blackoutUntil = sim.t + 1.4; const h = getHead(); sfxBreath(at(h.x + rand(-1, 1), h.y, h.z + rand(-1, 1)), 1); },
+  pa() { const h = getHead(), a = rand(0, 6.28); sfxPA(at(h.x + Math.cos(a) * 7, WALL_H, h.z + Math.sin(a) * 7), 0.8); },
+  gurneyFar() { const h = getHead(), a = rand(0, 6.28), r = rand(5, 8); sfxRoll(at(h.x + Math.cos(a) * r, 0.3, h.z + Math.sin(a) * r), 2.2, 0.6);
+    for (let i = 0; i < 6; i++) setTimeout(() => sfxSqueak(at(h.x + Math.cos(a + i * 0.15) * r, 0.3, h.z + Math.sin(a + i * 0.15) * r), 0.3), i * 300); },
+  drip() { const h = getHead(); sfxDrip(at(h.x + rand(-1.5, 1.5), 1, h.z + rand(-1.5, 1.5))); },
+  beepFar() { const h = getHead(), a = rand(0, 6.28); for (let i = 0; i < 6; i++) setTimeout(() => sfxBeep(at(h.x + Math.cos(a) * 8, 1.5, h.z + Math.sin(a) * 8), 1400, 0.35), i * 260); },
 };
 
 /* ================= ATMOSPHERE ================= */
-const C_WARM = new THREE.Color(0xfff1d6), C_RED = new THREE.Color(0xff5a3c), C_BULB = new THREE.Color(0xffc98a), C_BULB_RED = new THREE.Color(0xff2a18);
+const C_WARM = new THREE.Color(0xfff1d6), C_RED = new THREE.Color(0xff5a3c), C_BULB = new THREE.Color(0xd6f0e2), C_BULB_RED = new THREE.Color(0xff2a18);
 function atmosphere(dt) {
   pulse = Math.max(0, pulse - dt * 4); const a = level;
   scene.fog.density = 0.05 + a * 0.06; scene.fog.color.copy(FOG).lerp(FOG_HIGH, Math.max(0, a - 0.3) / 0.7); scene.background.copy(scene.fog.color);
@@ -1163,10 +1509,11 @@ function atmosphere(dt) {
   veil.material.opacity += (veilTarget - veil.material.opacity) * Math.min(1, dt * 5);
   if (AC) { droneGain.gain.setTargetAtTime(0.10 + a * 0.18 + Math.min(1, DIR.T) * 0.06, AC.currentTime, 0.5); windGain.gain.setTargetAtTime(0.04 + a * 0.06, AC.currentTime, 0.5);
     hbGain.gain.setTargetAtTime(0.1 + 0.7 * hrAro, AC.currentTime, 0.4); droneFilter.frequency.setTargetAtTime(160 + a * 420, AC.currentTime, 0.8);
+    humGain.gain.setTargetAtTime(sim.t < flickerUntil || out ? 0.015 + Math.random() * 0.09 : 0.022, AC.currentTime, 0.03);
     if (silentUntil && sim.t > silentUntil) { silentUntil = 0; amb.gain.setTargetAtTime(1, AC.currentTime, 0.3); } }
 }
 
-function hideUI() { const near = !hidden && nearLocker(); $('hint').textContent = hidden ? 'E: salir del casillero' : near ? 'E: esconderte en el casillero' : '';
+function hideUI() { const near = !hidden && nearLocker(); $('hint').textContent = hidden ? 'E: salir del armario' : near ? 'E: esconderte en el armario' : '';
   $('hint').hidden = !(hidden || near) || renderer.xr.isPresenting; $('hideBtn').hidden = !(hidden || near); $('hideBtn').textContent = hidden ? 'Salir' : 'Esconderse'; }
 
 /* ================= MAIN LOOP ================= */
@@ -1181,13 +1528,14 @@ function update(dt) {
   const h = getHead();
   keys.forEach(k => { if (k.taken) return; k.obj.rotation.y += dt * 1.5; k.obj.position.y = 1.1 + Math.sin(sim.t * 2 + k.c) * 0.06;
     if (Math.hypot(h.x - k.obj.position.x, h.z - k.obj.position.z) < 0.9) { k.taken = true; k.obj.visible = false; keysTaken++; $('keyCount').textContent = keysTaken; sfxPickup(); logEvent('key', String(keysTaken));
-      if (keysTaken === keys.length) { doorOpen = true; toast('Se abrió la puerta de salida'); sfxSlam(at(door.position.x, 1.5, door.position.z)); logEvent('door_open'); } } });
+      if (keysTaken === keys.length) { doorOpen = true; toast('Se desbloqueó la salida de emergencia'); sfxSlam(at(door.position.x, 1.5, door.position.z)); logEvent('door_open'); } } });
   if (doorOpen && doorLift < WALL_H - 0.2) { doorLift = Math.min(WALL_H - 0.2, doorLift + dt * 1.2); door.position.y = WALL_H / 2 + doorLift; }
   const [c, r] = playerCell();
   if (!dragged() && !hidden && !majorActive() && DAMA.state === 'off') for (const tr of triggers) if (!tr.fired && tr.c === c && tr.r === r) fireScare(tr);
   if (doorOpen && c === exitCell[0] && r === exitCell[1]) finish();
   directorStep(dt); damaStep(dt); ceilingStep(dt); chaserStep(dt); decalStep(dt); shutterStep(dt);
   animDama(DAMA.rig, DAMA.g, DAMA.mode, dt); animReptante(R.rig, R.g, R.mode, dt); animCarnicero(K.rig, K.g, K.mode, dt);
+  scarePropsStep(dt); lampStep(); drawMonitors();
   hideUI();
   atmosphere(dt); updateListener(); drawWrist();
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').style.opacity = 0; }
@@ -1198,7 +1546,7 @@ function autoBaseline() { if (!algo.baseline && !algo.collecting) { $('baselineB
 function begin() { autoBaseline(); initAudio(); if (AC.state === 'suspended') AC.resume(); $('startScreen').hidden = true; running = true; startedAt = sim.t; logEvent('game_start'); }
 function finish() { running = false; logEvent('escape'); const s = renderer.xr.getSession(); if (s) s.end(); if (document.pointerLockElement) document.exitPointerLock();
   const n = t => events.filter(e => e.type === t).length;
-  $('endStats').textContent = `Tiempo: ${(sim.t - startedAt).toFixed(0)} s · Screamers: ${n('screamer')} · Veces que viste al Reptante: ${n('techo_visto')} · Persecuciones: ${n('carnicero') ? events.filter(e => e.detail === 'te_vio').length : 0} · Te atrapó: ${n('attack')} · Cambios de estado: ${n('state')}.`;
+  $('endStats').textContent = `Tiempo: ${(sim.t - startedAt).toFixed(0)} s · Screamers: ${n('screamer')} · Veces que viste al Paciente: ${n('techo_visto')} · Persecuciones: ${n('carnicero') ? events.filter(e => e.detail === 'te_vio').length : 0} · Te atrapó: ${n('attack')} · Cambios de estado: ${n('state')}.`;
   $('endScreen').hidden = false; }
 $('playBtn').addEventListener('click', begin);
 $('againBtn').addEventListener('click', () => location.reload());
@@ -1217,8 +1565,8 @@ function drawWrist() {
   g.fillStyle = ['#39ff88', '#ffb020', '#ff3344'][Math.max(0, st)]; g.font = '600 44px monospace'; g.fillText(label, 300, 100);
   g.fillStyle = '#d9e2de'; g.font = '30px monospace';
   g.fillText(algo.collecting ? 'Quédate quieto…' : algo.baseline ? 'ΔFC ' + (algo.dRel >= 0 ? '+' : '') + Math.round(algo.dRel * 100) + ' %' : '', 24, 170);
-  g.fillText(hidden ? 'ESCONDIDO' : nearLocker() ? 'A: esconderte' : 'Llave ' + keysTaken + '/1', 300, 170);
-  g.fillStyle = '#ff3344'; g.fillRect(24, 190, 464 * level, 8); g.fillStyle = '#7d8b86'; g.font = '26px monospace'; g.fillText(hidden ? 'A: salir del casillero' : 'X: susto  Y: calma  A: esconderte', 24, 238);
+  g.fillText(hidden ? 'ESCONDIDO' : nearLocker() ? 'A: esconderte' : 'Tarjeta ' + keysTaken + '/1', 300, 170);
+  g.fillStyle = '#ff3344'; g.fillRect(24, 190, 464 * level, 8); g.fillStyle = '#7d8b86'; g.font = '26px monospace'; g.fillText(hidden ? 'A: salir del armario' : 'X: susto  Y: calma  A: esconderte', 24, 238);
   wristTex.needsUpdate = true;
 }
 (async function () {
@@ -1233,7 +1581,7 @@ function drawWrist() {
 })();
 if (innerWidth < 640) $('collapse').click();
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-window.__latido = { DAMA, R, K, DS, RC, KC, DIR, lockers, decals, shut, sealed, startScream, startCeiling, startHunt, startMajor, toggleHide, get hidden() { return hidden; },
+window.__latido = { mapFree: (x, z) => cellAt(x, z) !== '#', scene, hemi, camera, GURNEY, CHAIR, CURT, MON, MONS, SCARES, solids, scarePropsStep, DAMA, R, K, DS, RC, KC, DIR, lockers, decals, shut, sealed, startScream, startCeiling, startHunt, startMajor, toggleHide, get hidden() { return hidden; },
   get level() { return level; }, get hrAro() { return hrAro; }, flashlight, sim, algo, events, keys, triggers, dolly,
   tick: (sec, step = 0.02) => { for (let t = 0; t < sec; t += step) update(step); }, setYaw: v => { yaw = v; }, setPitch: v => { pitch = v; }, teleport: (c, r) => { dolly.position.set(cx(c), 0, cz(r)); } };
 </script>
