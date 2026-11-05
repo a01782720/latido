@@ -210,17 +210,19 @@ const $ = id => document.getElementById(id);
 
 /* ================= MAP ================= */
 const MAP = [
-"#############",
-"#S...#...#.L#",
-"###.##.#.#..#",
-"#L..1..#....#",
-"#.###.####.##",
-"#...#..2.#.L#",
-"#.#.####.##.#",
-"#.#...K#...3#",
-"#.###.##.##.#",
-"#ED.5.4.....#",
-"#############"];
+"###############",
+"#S..#...#.....#",
+"###.#.#.#.###.#",
+"#L....#...#K#.#",
+"#.###.#####.#.#",
+"#...#.1..#..#L#",
+"#.#.#.#####.#.#",
+"#.#...#2..#...#",
+"#.#####.#.###.#",
+"#.3.....#...#.#",
+"###.###.###.#.#",
+"#ED.5.L.....4.#",
+"###############"];
 const CELL = 2.2, WALL_H = 3.0, ROWS = MAP.length, COLS = MAP[0].length;
 const cx = c => (c + 0.5) * CELL, cz = r => (r + 0.5) * CELL;
 const sealed = new Set();                       // cells temporarily closed by a falling shutter
@@ -313,7 +315,7 @@ keys.forEach(k => { const g = new THREE.Group();
   const bit = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.03, 0.03), keyMat); bit.position.set(0.04, -0.3, 0);
   const halo = glowSprite('rgba(255,190,80,0.9)'); halo.scale.set(0.9, 0.9, 1);
   g.add(ring, shaft, bit, halo); g.position.set(cx(k.c), 1.1, cz(k.r)); scene.add(g); k.obj = g; k.taken = false; });
-const bulbs = [[3, 1], [10, 3], [2, 5], [8, 9]].map(([c, r]) => {
+const bulbs = [[3, 1], [9, 3], [2, 5], [9, 9], [12, 7]].map(([c, r]) => {
   const l = new THREE.PointLight(0xffc98a, 4, 7, 2); l.position.set(cx(c), WALL_H - 0.3, cz(r)); scene.add(l);
   const b = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffd7a0 })); b.position.copy(l.position); scene.add(b);
   return { l, b, base: 4 }; });
@@ -879,12 +881,17 @@ function damaPlace(mode) { const h = getHead();
   if (mode === 'ahead' || mode === 'front') { const { f, d } = freeAhead(); const k = Math.min(mode === 'front' ? 2.4 : rand(3.0, 5.2), d); if (k < 1.8) return null; return { x: h.x + f.x * k, z: h.z + f.z * k }; }
   if (mode === 'corner') { const sp = cornerSpot(2.4, 6); return sp ? { x: sp.c.x, z: sp.c.z } : null; }
   if (mode === 'behind') return spotBehind([2.4, 1.9], true);
+  if (mode === 'pop') { const { f, d } = freeAhead(); if (d < 1.5) return null; const k = Math.min(rand(1.6, 2.1), d); return { x: getHead().x + f.x * k, z: getHead().z + f.z * k }; }
+  if (mode === 'turn') return spotBehind([1.8, 1.6], true);
   return null; }
 function startScream(mode, static_ = 0) { if (DAMA.state !== 'off') return false; const p = damaPlace(mode); if (!p) return false;
   DAMA.g.position.set(p.x, 0, p.z); faceTo(DAMA.g, getHead()); setMorph(DAMA.rig, false); DAMA.g.visible = true; DAMA.mode = 'still';
   DAMA.state = static_ ? 'static' : 'stand';
-  Object.assign(DS, { until: sim.t + (static_ || rand(10, 16)), seenT: 0, trigAt: mode === 'front' ? 0.15 : rand(0.35, 1.4), mode, major: false });
-  if (mode === 'ahead' || mode === 'front') flickerUntil = sim.t + 0.5;
+  const quick = mode === 'pop' || mode === 'turn';
+  Object.assign(DS, { until: sim.t + (static_ || (mode === 'pop' ? 3 : mode === 'turn' ? 7 : rand(10, 16))), seenT: 0, trigAt: mode === 'front' ? 0.15 : mode === 'turn' ? 0.06 : mode === 'pop' ? rand(0.2, 0.45) : rand(0.35, 1.4), mode, major: false, quick });
+  if (mode === 'pop') { blackoutUntil = sim.t + 0.2; flickerUntil = sim.t + 0.55; }      // out of nowhere: she is there when the light comes back
+  else if (mode === 'ahead' || mode === 'front') flickerUntil = sim.t + 0.5;
+  if (mode === 'turn') sfxBreath(at(p.x, 1.6, p.z), 1);
   logEvent('dama', mode + (static_ ? ':aparicion' : '')); return true; }
 function endDama(why) { if (DAMA.state === 'off') return; DAMA.state = 'off'; DAMA.g.visible = false; setMorph(DAMA.rig, false); logEvent('dama_fin', why);
   if (DS.major) { DS.major = false; endMajor('scream', why === 'no_la_viste' ? 0.5 : 1); } }
@@ -893,7 +900,7 @@ function damaStep(dt) {
   const h = getHead(), p = DAMA.g.position, d = Math.hypot(h.x - p.x, h.z - p.z), seen = inView({ x: p.x, y: 1.55, z: p.z }, 0.7);
   if (DAMA.state === 'static') { faceTo(DAMA.g, h); if (sim.t > DS.until) endDama('aparicion'); return; }
   if (DAMA.state === 'stand') { faceTo(DAMA.g, h); if (seen) DS.seenT += dt;
-    if (DS.seenT > DS.trigAt || (seen && d < 2.2)) { DAMA.state = 'pre'; DAMA.mode = 'rise'; DS.until = sim.t + rand(0.55, 1.15); silence(DS.until - sim.t + 1.4); logEvent('dama_vista'); }
+    if (DS.seenT > DS.trigAt || (seen && d < 2.2)) { DAMA.state = 'pre'; DAMA.mode = 'rise'; DS.until = sim.t + (DS.quick ? rand(0.18, 0.35) : rand(0.55, 1.15)); silence(DS.until - sim.t + 1.4); logEvent('dama_vista'); }
     else if (d < 1.3) { DAMA.state = 'pre'; DS.until = sim.t + 0.15; }
     else if (sim.t > DS.until) endDama('no_la_viste');
     return; }
@@ -1046,10 +1053,10 @@ function fireScare(tr) { tr.fired = true; SCARES[tr.id](); logEvent('scare', 'S'
 /* ================= DIRECTOR OF FEAR =================
    Explore -> tension builds -> one peak event (hunt, screamer or ceiling drop) -> relief -> explore ...
    Only one peak at a time, silence before screamers, variable odds and cool-downs so nothing repeats on a pattern. */
-const DIR = { phase: 'explore', T: 0, trigger: 0.85, until: 0, major: '', prev: '', last: { hunt: -999, scream: -999, hang: -999 }, nextCeil: Infinity, nextAmb: Infinity };
+const DIR = { phase: 'explore', T: 0, trigger: 0.85, until: 0, major: '', prev: '', last: { hunt: -999, scream: -999, hang: -999 }, nextCeil: Infinity, nextAmb: Infinity, nextPop: Infinity };
 const majorActive = () => K.state !== 'off' || (DAMA.state !== 'off' && DS.major) || (R.state !== 'off' && RC.kind === 'hang');
 function startMajor() {
-  const w = { hunt: sim.t - DIR.last.hunt > 50 ? 1.3 : 0, scream: sim.t - DIR.last.scream > 38 ? 1.25 : 0, hang: sim.t - DIR.last.hang > 30 ? 0.9 : 0 };
+  const w = { hunt: sim.t - DIR.last.hunt > 50 ? 1.3 : 0, scream: sim.t - DIR.last.scream > 28 ? 1.4 : 0, hang: sim.t - DIR.last.hang > 30 ? 0.9 : 0 };
   if (DIR.prev && w[DIR.prev]) w[DIR.prev] *= 0.35;
   const pick = pickW(w); if (!pick) { DIR.T = 0.7; return; }
   if (R.state !== 'off') endCeiling('cede_el_paso'); if (DAMA.state !== 'off') endDama('cede_el_paso');
@@ -1064,7 +1071,16 @@ function endMajor(type, scale = 1) { DIR.last[type] = sim.t; DIR.major = ''; DIR
 const AMB_W = { stepsPass: 1, knock: 1, scream: 0.6, whisperEar: 1, scratchAbove: 1.3, slamFar: 0.7, breathBehind: 0.9, flicker: 1, blackout: 0.5 };
 function directorStep(dt) {
   if (!running || !algo.baseline) return;
-  if (!isFinite(DIR.nextCeil)) { DIR.nextCeil = sim.t + rand(5, 10); DIR.nextAmb = sim.t + rand(4, 9); DIR.trigger = rand(0.65, 1.0); }
+  if (!isFinite(DIR.nextCeil)) { DIR.nextCeil = sim.t + rand(5, 10); DIR.nextAmb = sim.t + rand(4, 9); DIR.nextPop = sim.t + rand(16, 28); DIR.trigger = rand(0.65, 1.0); }
+  // spontaneous screamers: their own clock, never on top of a chase or right after another big scare
+  if (sim.t > DIR.nextPop) {
+    const calmSince = sim.t - Math.max(DIR.last.hunt, DIR.last.scream, DIR.last.hang);
+    if (!majorActive() && DAMA.state === 'off' && K.state === 'off' && calmSince > 10) {
+      if (R.state !== 'off') endCeiling('cede_el_paso');
+      const ok = startScream(pickW({ pop: 2, turn: 1.1 })) || startScream('pop') || startScream('turn');
+      if (ok) logEvent('director', 'screamer_espontaneo');
+      DIR.nextPop = sim.t + (ok ? rand(20, 38) * (1 - 0.35 * hrAro) : 3);
+    } else DIR.nextPop = sim.t + rand(3, 6); }
   const busy = majorActive();
   if (!busy) {
     if (DIR.phase === 'relief') { if (sim.t > DIR.until) DIR.phase = 'explore'; }
