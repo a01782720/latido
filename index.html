@@ -172,6 +172,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
     <canvas class="trace-line" id="titleTrace" width="840" height="80" aria-hidden="true"></canvas>
     <h1>Lat<em>i</em>do</h1>
     <p>Un hospital abandonado. Una tarjeta de acceso y una salida. El edificio escucha tu corazón: entre más se acelera, más fallan las luces y más cerca están ellos.</p>
+      <p style="font-size:11px;opacity:.55;margin-top:6px">Modelo del Cirujano: «Horror Monster» de GerardoA400 (Sketchfab, CC BY 4.0).</p>
     <ul class="rules">
       <li>Mira al techo. Siempre. Hay un paciente que nunca se fue.</li>
       <li>Si ves a una enfermera quieta, no te acerques.</li>
@@ -204,6 +205,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 import * as THREE from 'three';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const V3 = THREE.Vector3, rand = (a, b) => a + Math.random() * (b - a), clamp = (v, a, b) => Math.max(a, Math.min(b, v)), lerp = (a, b, t) => a + (b - a) * t;
 const $ = id => document.getElementById(id);
@@ -807,6 +809,111 @@ function animCarnicero(rig, grp, mode, dt, speed) {
   rig.headG.rotation.z = mode === 'alert' ? 0.3 : Math.sin(t * 0.9) * 0.05;
   rig.headG.rotation.x = -rig.torso.rotation.x * (mode === 'attack' ? 0.9 : 0.6);
 }
+
+/* ---------- El Cirujano (model): rigged and animated "Horror Monster" by GerardoA400 (Sketchfab, CC BY 4.0).
+   Hospital gear is not stuck on: every piece is cut from the creature's own surface (scrub top, cap, mask, apron bib)
+   and skinned to the same skeleton, so it bends with the body; the apron skirt hangs from the hips and the head lamp
+   rides on the head bone. The procedural surgeon stays as a fallback until the file has loaded. ---------- */
+const KM = { ready: false, spd: 0, last: null };
+const CIR_H = 2.15;                                     // standing height in metres (it walks hunched, so it reads ~1.9 m)
+function cirFit(sk, keepVert, offsetM, uvOf, mat, upm) {       // copy of the triangles whose 3 vertices pass keepVert, pushed out along the normal
+  const g = sk.geometry, P = g.attributes.position, N = g.attributes.normal, SI = g.attributes.skinIndex, SW = g.attributes.skinWeight, I = g.index;
+  const map = new Int32Array(P.count).fill(-1), pos = [], nor = [], uv = [], si = [], sw = [], ind = [];
+  const n = I ? I.count : P.count, at = k => I ? I.getX(k) : k;
+  for (let t = 0; t < n; t += 3) { const a = at(t), b = at(t + 1), c = at(t + 2); if (!keepVert(a) || !keepVert(b) || !keepVert(c)) continue;
+    for (const v of [a, b, c]) { if (map[v] < 0) { map[v] = pos.length / 3; const o = (typeof offsetM === 'function' ? offsetM(v) : offsetM) * upm;
+        pos.push(P.getX(v) + N.getX(v) * o, P.getY(v) + N.getY(v) * o, P.getZ(v) + N.getZ(v) * o); nor.push(N.getX(v), N.getY(v), N.getZ(v)); uv.push(...uvOf(v));
+        si.push(SI.getX(v), SI.getY(v), SI.getZ(v), SI.getW(v)); sw.push(SW.getX(v), SW.getY(v), SW.getZ(v), SW.getW(v)); }
+      ind.push(map[v]); } }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4)); geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4)); geo.setIndex(ind);
+  const m = new THREE.SkinnedMesh(geo, mat); m.bind(sk.skeleton, sk.bindMatrix); m.frustumCulled = false; sk.parent.add(m); return m; }
+function setupCirujano(gltf) {
+  const root = gltf.scene, clip = gltf.animations[0]; let sk = null; const bones = {};
+  root.traverse(o => { if (o.isSkinnedMesh) sk = o; if (o.isBone && /Bind_/.test(o.name)) bones[o.name.replace(/^.*Bind_/, '').replace(/_\d+$/, '')] = o; if (o.isMesh) o.frustumCulled = false; });
+  const P = sk.geometry.attributes.position, NN = sk.geometry.attributes.normal, SI = sk.geometry.attributes.skinIndex, SW = sk.geometry.attributes.skinWeight;
+  // bind-pose analysis: dominant bone, bounds per body part
+  const dom = new Array(P.count), BW = []; const box = new THREE.Box3(), v = new THREE.Vector3();
+  for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).applyMatrix4(sk.bindMatrix); BW.push(v.clone()); box.expandByPoint(v);
+    let bi = 0, bw = -1; for (let k = 0; k < 4; k++) { const w = SW.getComponent(i, k); if (w > bw) { bw = w; bi = SI.getComponent(i, k); } } dom[i] = sk.skeleton.bones[bi].name.replace(/^.*Bind_/, '').replace(/_\d+$/, ''); }
+  const H = box.max.y - box.min.y, upm = H / CIR_H, part = names => { const b = new THREE.Box3(); for (let i = 0; i < P.count; i++) if (names.includes(dom[i])) b.expandByPoint(BW[i]); return b; };
+  const head = part(['Head']), torso = part(['Spine', 'Spine1', 'Spine2']), hipsB = part(['Hips']), legs = part(['LeftUpLeg', 'RightUpLeg']);
+  const hh = head.max.y - head.min.y, hcz = (head.min.z + head.max.z) / 2, nz = i => NN.getZ(i), ny = i => NN.getY(i);
+  const planar = (b, rx = 1, ry = 1) => i => [(BW[i].x - b.min.x) / (b.max.x - b.min.x) * rx, (BW[i].y - b.min.y) / (b.max.y - b.min.y) * ry];
+  const TORSO = ['Spine', 'Spine1', 'Spine2', 'LeftShoulder', 'RightShoulder'], waistY = hipsB.max.y - (hipsB.max.y - hipsB.min.y) * 0.35;
+  const armCut = {}; for (const a of ['LeftArm', 'RightArm']) { const b = part([a]); armCut[a] = Math.min(Math.abs(b.min.x), Math.abs(b.max.x)) + (b.max.x - b.min.x) * 0.42; }
+  const shirtV = i => TORSO.includes(dom[i]) || (dom[i] === 'Hips' && BW[i].y > waistY) || (armCut[dom[i]] && Math.abs(BW[i].x) < armCut[dom[i]]);
+  const scrubs = cirFit(sk, shirtV, 0.008, planar(torso, 3, 3), MAT.shirt, upm);
+  // rubber apron: a bib fitted over the chest and belly, and a skirt that hangs from the hips to the knees
+  const tw = (torso.max.x - torso.min.x) / 2, bibV = i => shirtV(i) && !armCut[dom[i]] && nz(i) > 0.25 && Math.abs(BW[i].x) < tw * 0.62 && BW[i].y < torso.max.y - (torso.max.y - torso.min.y) * 0.12;
+  const bib = cirFit(sk, bibV, 0.02, planar(torso), MAT.apron, upm);
+  { const hipsIdx = sk.skeleton.bones.indexOf(bones.Hips), y0 = waistY + 0.04 * upm, y1 = legs.min.y + (legs.max.y - legs.min.y) * 0.05, hw = Math.max(legs.max.x, -legs.min.x) * 0.95;
+    const frontAt = y => { let z = -1e9; for (let i = 0; i < P.count; i++) if (Math.abs(BW[i].y - y) < 0.25 && Math.abs(BW[i].x) < hw && /Hips|UpLeg/.test(dom[i])) z = Math.max(z, BW[i].z); return z > -1e8 ? z : hipsB.max.z; };
+    const R = 10, C = 12, pos = [], uv = [], si = [], sw = [], ind = [], zTop = frontAt(y0);
+    for (let r = 0; r <= R; r++) { const t = r / R, y = y0 + (y1 - y0) * t, zf = Math.max(frontAt(y), zTop - 0.2 * upm) + 0.045 * upm + t * 0.05 * upm;
+      for (let c = 0; c <= C; c++) { const u = c / C, x = (u - 0.5) * 2 * hw * (1 + 0.12 * t), wrap = Math.pow(Math.abs(u - 0.5) * 2, 2) * 0.32 * upm * (1 - 0.3 * t);
+        pos.push(x, y, zf - wrap); uv.push(u, 1 - t); si.push(hipsIdx, 0, 0, 0); sw.push(1, 0, 0, 0);
+        if (r < R && c < C) { const a = r * (C + 1) + c; ind.push(a, a + C + 1, a + 1, a + 1, a + C + 1, a + C + 2); } } }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4)); g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4)); g.setIndex(ind); g.computeVertexNormals();
+    const skirt = new THREE.SkinnedMesh(g, MAT.apron); skirt.bind(sk.skeleton, sk.bindMatrix); skirt.frustumCulled = false; sk.parent.add(skirt); KM.skirt = skirt; }
+  // surgical cap over the crown, mask over the lower face (with its ties), both cut from the head
+  const fy = f => head.min.y + hh * f, isHead = i => dom[i] === 'Head';
+  cirFit(sk, i => isHead(i) && (BW[i].y > fy(0.7) || (BW[i].y > fy(0.6) && BW[i].z < hcz)), 0.012, planar(head, 2, 2), MAT.capS, upm);
+  const maskB = new THREE.Box3(); for (let i = 0; i < P.count; i++) if (isHead(i) && BW[i].z > hcz && BW[i].y > fy(0.12) && BW[i].y < fy(0.48)) maskB.expandByPoint(BW[i]);
+  cirFit(sk, i => isHead(i) && BW[i].z > hcz + (head.max.z - hcz) * 0.15 && nz(i) > 0.1 && BW[i].y > fy(0.12) && BW[i].y < fy(0.48), 0.007, planar(maskB), MAT.mask, upm);
+  cirFit(sk, i => isHead(i) && Math.abs(BW[i].y - fy(0.43)) < hh * 0.025 && nz(i) < 0.6, 0.006, i => [0, 0], MAT.capS, upm);
+  // scale + feet on the floor
+  const holder = new THREE.Group(); holder.add(root);
+  root.updateMatrixWorld(true); sk.skeleton.update(); const wb = new THREE.Box3(); for (let i = 0; i < P.count; i += 7) { const w = new V3(); sk.getVertexPosition(i, w); wb.expandByPoint(w.applyMatrix4(sk.matrixWorld)); }
+  const sc = CIR_H / (wb.max.y - wb.min.y); root.scale.multiplyScalar(sc); root.position.y = -wb.min.y * sc; holder.updateMatrixWorld(true); sk.skeleton.update();
+  // head lamp on the forehead, on a strap, riding on the head bone
+  let fp = null; for (let i = 0; i < P.count; i++) if (isHead(i) && Math.abs(BW[i].x) < hh * 0.08 && Math.abs(BW[i].y - fy(0.68)) < hh * 0.05 && (!fp || BW[i].z > BW[fp].z)) fp = i;
+  const fw = new V3(); sk.getVertexPosition(fp, fw); fw.applyMatrix4(sk.matrixWorld);
+  const lamp = new THREE.Group(); lamp.position.copy(fw); lamp.position.z += 0.012;
+  const housing = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.03, 0.04, 16).rotateX(Math.PI / 2), MAT.blade); housing.position.z = 0.016;
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.032, 0.005, 6, 18), MAT.blade); rim.position.z = 0.036;
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.028, 18), MAT.lens); lens.position.z = 0.037;
+  const flare = glowSprite('rgba(230,245,255,0.9)'); flare.scale.set(0.2, 0.2, 1); flare.position.z = 0.05;
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.045, 0.012), MAT.boot); plate.position.z = -0.002;
+  const aim = new THREE.Object3D(); aim.position.set(0, -0.9, 3); lamp.add(housing, rim, lens, flare, plate, aim);
+  holder.add(lamp); bones.Head.attach(lamp);
+  // remember rest poses for stride amplification
+  const legBones = ['LeftUpLeg', 'LeftLeg', 'LeftFoot', 'RightUpLeg', 'RightLeg', 'RightFoot'].map(n => bones[n]).filter(Boolean);
+  const mixer = new THREE.AnimationMixer(root), act = mixer.clipAction(clip); act.play();
+  // stride speed of the clip at scale 1 (foot travel per second), measured once
+  let travel = 0, prev = null; const fb = bones.LeftFoot, tmp = new V3(), acc = legBones.map(() => new THREE.Vector4());
+  for (let k = 0; k <= 60; k++) { mixer.setTime(clip.duration * k / 60); holder.updateMatrixWorld(true); fb.getWorldPosition(tmp); if (prev !== null) travel += Math.abs(tmp.z - prev); prev = tmp.z;
+    legBones.forEach((b, j) => { const q = b.quaternion, a = acc[j], sgn = a.x * q.x + a.y * q.y + a.z * q.z + a.w * q.w < 0 ? -1 : 1; a.x += q.x * sgn; a.y += q.y * sgn; a.z += q.z * sgn; a.w += q.w * sgn; }); }
+  KM.rest = new Map(legBones.map((b, j) => [b, new THREE.Quaternion(acc[j].x, acc[j].y, acc[j].z, acc[j].w).normalize()]));   // the average pose of the walk cycle
+  mixer.setTime(0);
+  Object.assign(KM, { holder, root, mixer, act, bones, lens, aim, legBones, v0: Math.max(0.2, travel / clip.duration / 2), ready: true });
+  K.g.children.slice().forEach(c => K.g.remove(c)); K.g.add(holder); K.rig.lens = lens; K.rig.lampAim = aim;
+  logEvent('modelo', 'cirujano_cargado');
+}
+const qA = new THREE.Quaternion(), qB = new THREE.Quaternion(), vAx = new V3();
+function boneRot(b, axis, ang) { if (!b || !ang) return; b.parent.getWorldQuaternion(qA); KM.holder.getWorldQuaternion(qB); qA.premultiply(qB.invert()).invert();
+  vAx.copy(axis).applyQuaternion(qA); b.quaternion.premultiply(qB.setFromAxisAngle(vAx, ang)); }
+const AX = new V3(1, 0, 0), AY = new V3(0, 1, 0), AZ = new V3(0, 0, 1);
+function animCirujano(mode, dt) {
+  if (!K.g.visible) { KM.last = null; return; }
+  const p = K.g.position, raw = KM.last ? Math.hypot(p.x - KM.last.x, p.z - KM.last.z) / Math.max(dt, 1e-4) : 0; KM.last = { x: p.x, z: p.z };
+  KM.spd += (Math.min(raw, 4) - KM.spd) * Math.min(1, dt * 6);
+  const run = mode === 'run', attack = mode === 'attack', moving = KM.spd > 0.1, t = sim.t;
+  const amp = run ? 1.55 : 1.2, ts = moving ? clamp(KM.spd / (KM.v0 * amp), 0.4, run ? 3.0 : 2.0) : 0.1;   // standing: the clip creeps on almost frozen, like swaying
+  KM.mixer.update(dt * ts); KM.holder.updateMatrixWorld(true);
+  if (moving) for (const b of KM.legBones) { qA.copy(b.quaternion); b.quaternion.slerpQuaternions(KM.rest.get(b), qA, amp); }   // longer strides when it hurries
+  const B = KM.bones, k = Math.min(1, dt * 8);
+  KM.lean = (KM.lean || 0) + ((attack ? 0.65 : run ? 0.38 : mode === 'alert' ? -0.12 : 0) - (KM.lean || 0)) * k;
+  boneRot(B.Spine1, AX, KM.lean * 0.6); boneRot(B.Spine2, AX, KM.lean * 0.4); KM.holder.updateMatrixWorld(true);
+  KM.arm = (KM.arm || 0) + ((attack ? -1.5 : mode === 'alert' ? -0.5 : run ? -0.35 : 0) - (KM.arm || 0)) * Math.min(1, dt * (attack ? 14 : 6));
+  boneRot(B.LeftArm, AX, KM.arm); boneRot(B.RightArm, AX, KM.arm * 1.15); boneRot(B.RightForeArm, AX, attack ? -0.5 : 0);
+  // head: scans the corridor while patrolling or searching, snaps to you when it hears or sees you
+  const scan = mode === 'look' ? Math.sin(t * 1.6) * 0.8 : moving && !run ? Math.sin(t * 0.7) * 0.3 : 0;
+  KM.scan = (KM.scan || 0) + (scan - (KM.scan || 0)) * Math.min(1, dt * 5); KM.holder.updateMatrixWorld(true);
+  boneRot(B.Head, AY, KM.scan); boneRot(B.Head, AZ, mode === 'alert' ? 0.35 : Math.sin(t * 0.9) * 0.05); boneRot(B.Head, AX, -KM.lean * 0.5);
+}
+function loadCirujano() { try { new GLTFLoader().load('cirujano.glb', g => { try { setupCirujano(g); } catch (e) { console.warn('cirujano', e); KM.ready = false; } }, undefined, e => console.warn('cirujano.glb', e)); } catch (e) { console.warn(e); } }
 
 /* ================= HOSPITAL DRESSING =================
    Abandoned hospital: gurneys with covered bodies, wheelchairs, IV stands, instrument carts, ward doors, wall signs,
@@ -1649,7 +1756,7 @@ function update(dt) {
   if (!dragged() && !hidden && !majorActive() && DAMA.state === 'off') for (const tr of triggers) if (!tr.fired && tr.c === c && tr.r === r) fireScare(tr);
   if (doorOpen && c === exitCell[0] && r === exitCell[1]) finish();
   directorStep(dt); damaStep(dt); ceilingStep(dt); chaserStep(dt); decalStep(dt); shutterStep(dt);
-  animDama(DAMA.rig, DAMA.g, DAMA.mode, dt); animReptante(R.rig, R.g, R.mode, dt); animCarnicero(K.rig, K.g, K.mode, dt);
+  animDama(DAMA.rig, DAMA.g, DAMA.mode, dt); animReptante(R.rig, R.g, R.mode, dt); if (KM.ready) animCirujano(K.mode, dt); else animCarnicero(K.rig, K.g, K.mode, dt);
   scarePropsStep(dt); lampStep(); drawMonitors();
   hideUI();
   atmosphere(dt); updateListener(); drawWrist();
@@ -1696,7 +1803,8 @@ function drawWrist() {
 })();
 if (innerWidth < 640) $('collapse').click();
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-window.__latido = { setMorphNurse: on => setMorph(DAMA.rig, on), mapFree: (x, z) => cellAt(x, z) !== '#', scene, hemi, camera, GURNEY, CHAIR, CURT, MON, MONS, SCARES, solids, scarePropsStep, DAMA, R, K, DS, RC, KC, DIR, lockers, decals, shut, sealed, startScream, startCeiling, startHunt, startMajor, toggleHide, get hidden() { return hidden; },
+loadCirujano();
+window.__latido = { KM, setMorphNurse: on => setMorph(DAMA.rig, on), mapFree: (x, z) => cellAt(x, z) !== '#', scene, hemi, camera, GURNEY, CHAIR, CURT, MON, MONS, SCARES, solids, scarePropsStep, DAMA, R, K, DS, RC, KC, DIR, lockers, decals, shut, sealed, startScream, startCeiling, startHunt, startMajor, toggleHide, get hidden() { return hidden; },
   get level() { return level; }, get hrAro() { return hrAro; }, flashlight, sim, algo, events, keys, triggers, dolly,
   tick: (sec, step = 0.02) => { for (let t = 0; t < sec; t += step) update(step); }, setYaw: v => { yaw = v; }, setPitch: v => { pitch = v; }, teleport: (c, r) => { dolly.position.set(cx(c), 0, cz(r)); } };
 </script>
