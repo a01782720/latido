@@ -913,7 +913,8 @@ function animCirujano(mode, dt) {
   KM.scan = (KM.scan || 0) + (scan - (KM.scan || 0)) * Math.min(1, dt * 5); KM.holder.updateMatrixWorld(true);
   boneRot(B.Head, AY, KM.scan); boneRot(B.Head, AZ, mode === 'alert' ? 0.35 : Math.sin(t * 0.9) * 0.05); boneRot(B.Head, AX, -KM.lean * 0.5);
 }
-function loadCirujano() { try { new GLTFLoader().load('cirujano.glb', g => { try { setupCirujano(g); } catch (e) { console.warn('cirujano', e); KM.ready = false; } }, undefined, e => console.warn('cirujano.glb', e)); } catch (e) { console.warn(e); } }
+function loadCirujano(urls = ['cirujano.glb', 'https://a01782720.github.io/latido/cirujano.glb']) {    // next to the page; else from the GitHub Pages copy
+  if (!urls.length) return; try { new GLTFLoader().load(urls[0], g => { try { setupCirujano(g); } catch (e) { console.warn('cirujano', e); KM.ready = false; } }, undefined, () => loadCirujano(urls.slice(1))); } catch (e) { console.warn(e); } }
 
 /* ================= HOSPITAL DRESSING =================
    Abandoned hospital: gurneys with covered bodies, wheelchairs, IV stands, instrument carts, ward doors, wall signs,
