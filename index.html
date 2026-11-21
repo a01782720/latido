@@ -172,7 +172,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
     <canvas class="trace-line" id="titleTrace" width="840" height="80" aria-hidden="true"></canvas>
     <h1>Lat<em>i</em>do</h1>
     <p>Un hospital abandonado. Una tarjeta de acceso y una salida. El edificio escucha tu corazón: entre más se acelera, más fallan las luces y más cerca están ellos.</p>
-      <p style="font-size:11px;opacity:.55;margin-top:6px">Modelos: «Horror Monster» de GerardoA400 y «Sister Madeline Nurse Skin» de Sophynity (Sketchfab, CC BY 4.0).</p>
+      <p style="font-size:11px;opacity:.55;margin-top:6px">Modelos (Sketchfab): «Horror Monster» de GerardoA400 y «Sister Madeline Nurse Skin» de Sophynity (CC BY 4.0); «Creepy Monster» de Regulator.</p>
     <ul class="rules">
       <li>Mira al techo. Siempre. Hay un paciente que nunca se fue.</li>
       <li>Si ves a una enfermera quieta, no te acerques.</li>
@@ -702,7 +702,8 @@ function buildReptante(root) {
   return { kind: 'R', flip, body, headG, jaw, hair, limbs, ribs, rags };
 }
 function animReptante(rig, grp, mode, dt) {
-  if (!grp.visible) return;
+  if (!grp.visible) { PM.last = null; return; }
+  if (rig.model) { animPacienteModel(mode, dt); return; }
   const t = sim.t, sp = mode === 'flee' || mode === 'burst' ? 30 : mode === 'idle' ? 2 : 13;
   rig.limbs.forEach((l, i) => { const ph = t * sp + l.phase + (i % 2) * Math.PI;
     l.hip.rotation.y = Math.sin(ph) * 0.38 * l.s; l.hip.rotation.x = Math.max(0, Math.sin(ph)) * 0.25; });
@@ -990,6 +991,102 @@ function animDamaModel(rig, mode, dt) {
 }
 function loadEnfermera(urls = ['enfermera.glb', 'https://a01782720.github.io/latido/enfermera.glb']) {
   if (!urls.length) return; try { new GLTFLoader().load(urls[0], g => { try { setupEnfermera(g); } catch (e) { console.warn('enfermera', e); NM.ready = false; } }, undefined, () => loadEnfermera(urls.slice(1))); } catch (e) { console.warn(e); } }
+
+/* ---------- El Paciente (model): "Creepy Monster" by Regulator (Sketchfab). The file is a static statue, so it is rigged here:
+   joints are found by slicing the body, every vertex is weighted to its nearest bones (envelope skinning, two bones per vertex),
+   and it crawls belly-up on the ceiling with a real gait: each hand and foot is placed on the ceiling and the elbows and knees
+   are solved with two-bone IK, bent up toward you like a spider. ---------- */
+const PM = { ready: false };
+function rigPaciente(src, height = 1.8) {
+  src.updateMatrixWorld(true); let mesh = null; src.traverse(o => { if (o.isMesh && !mesh) mesh = o; });
+  const geo = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld); geo.computeBoundingBox(); const bb = geo.boundingBox, s = height / (bb.max.y - bb.min.y);
+  geo.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, 0); geo.scale(s, s, s); const P = geo.attributes.position, n = P.count, Hh = height;
+  const V = i => new V3(P.getX(i), P.getY(i), P.getZ(i));
+  const cent = f => { const c = new V3(); let k = 0; for (let i = 0; i < n; i++) { const v = V(i); if (f(v)) { c.add(v); k++; } } return k ? c.divideScalar(k) : null; };
+  const J = {};
+  // legs
+  for (const [S, sg] of [['L', 1], ['R', -1]]) {
+    J['ankle' + S] = cent(v => v.x * sg > 0.01 && v.y > 0.045 * Hh && v.y < 0.075 * Hh);
+    J['knee' + S] = cent(v => v.x * sg > 0.01 && v.y > 0.27 * Hh && v.y < 0.3 * Hh);
+    J['hip' + S] = cent(v => v.x * sg > 0.01 && Math.abs(v.x) < 0.11 * Hh && v.y > 0.46 * Hh && v.y < 0.5 * Hh);
+    let toe = null; for (let i = 0; i < n; i++) { const v = V(i); if (v.x * sg > 0 && v.y < 0.05 * Hh && Math.abs(v.x) < 0.2 * Hh && (!toe || v.z > toe.z)) toe = v; } J['toe' + S] = toe.setY(0.02 * Hh); }
+  // spine and head
+  J.pelvis = cent(v => Math.abs(v.x) < 0.1 * Hh && v.y > 0.5 * Hh && v.y < 0.54 * Hh);
+  J.chest = cent(v => Math.abs(v.x) < 0.09 * Hh && v.y > 0.71 * Hh && v.y < 0.75 * Hh);
+  J.neck = cent(v => Math.abs(v.x) < 0.06 * Hh && v.y > 0.845 * Hh && v.y < 0.865 * Hh);
+  J.top = cent(v => v.y > 0.985 * Hh) || new V3(J.neck.x, Hh, J.neck.z); J.top.y = Hh;
+  // arms: follow the vertices from the shoulder out to the tip of the claws
+  const shX = 0.115 * Hh;
+  for (const [S, sg] of [['L', 1], ['R', -1]]) {
+    let tip = null; for (let i = 0; i < n; i++) { const v = V(i); if (v.x * sg > shX && v.y > 0.4 * Hh && (!tip || v.x * sg > tip.x * sg)) tip = v; }
+    const sh0 = cent(v => v.x * sg > shX * 0.8 && v.x * sg < shX * 1.25 && v.y > 0.74 * Hh) || new V3(sg * shX, 0.8 * Hh, J.chest.z);
+    const axis = tip.clone().sub(sh0), L = axis.length(); axis.normalize();
+    const along = (a, b) => cent(v => { if (v.x * sg < shX * 0.8 || v.y < 0.4 * Hh) return false; const t = v.clone().sub(sh0).dot(axis) / L; return t > a && t < b; });
+    J['shoulder' + S] = sh0.clone().lerp(new V3(0, sh0.y, J.chest.z), 0.25); J['elbow' + S] = along(0.44, 0.5); J['wrist' + S] = along(0.76, 0.8); J['tip' + S] = tip; }
+  // bones (flat: every bone is a child of the root, placed and aimed directly each frame)
+  const DEF = [['hips', 'pelvis', 'chest'], ['chest', 'chest', 'neck'], ['head', 'neck', 'top']];
+  for (const S of ['L', 'R']) DEF.push(['upArm' + S, 'shoulder' + S, 'elbow' + S], ['foreArm' + S, 'elbow' + S, 'wrist' + S], ['hand' + S, 'wrist' + S, 'tip' + S],
+    ['thigh' + S, 'hip' + S, 'knee' + S], ['shin' + S, 'knee' + S, 'ankle' + S], ['foot' + S, 'ankle' + S, 'toe' + S]);
+  const bones = [], B = {};
+  DEF.forEach(([name, a, b]) => { const bn = new THREE.Bone(); bn.name = name; bn.position.copy(J[a]); bones.push(bn); B[name] = { bone: bn, a, b, i: bones.length - 1, rest: J[b].clone().sub(J[a]), len: J[b].distanceTo(J[a]) }; });
+  // weights: nearest two bones (distance to the segment), limited to the body part the vertex belongs to
+  const segD = (v, d) => { const A = J[d.a], AB = d.rest, t = clamp(v.clone().sub(A).dot(AB) / AB.lengthSq(), 0, 1); return v.distanceTo(A.clone().addScaledVector(AB, t)); };
+  const crotch = (J.hipL.y + J.hipR.y) / 2 - 0.02 * Hh, si = [], sw = [];
+  for (let i = 0; i < n; i++) { const v = V(i), sg = v.x >= 0 ? 'L' : 'R'; let cand;
+    if (v.y < crotch) cand = ['thigh' + sg, 'shin' + sg, 'foot' + sg, 'hips'];
+    else if (Math.abs(v.x) > shX * 0.95 && v.y > 0.4 * Hh) cand = ['upArm' + sg, 'foreArm' + sg, 'hand' + sg, 'chest'];
+    else cand = ['hips', 'chest', 'head', 'upArm' + sg, 'thigh' + sg];
+    const ds = cand.map(c => [B[c].i, segD(v, B[c]) + 1e-4]).sort((p, q) => p[1] - q[1]).slice(0, 2), w = ds.map(([, d]) => 1 / d ** 4), tot = w[0] + w[1];
+    si.push(ds[0][0], ds[1][0], 0, 0); sw.push(w[0] / tot, w[1] / tot, 0, 0); }
+  geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4)); geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
+  const root = new THREE.Group(), sk = new THREE.SkinnedMesh(geo, mesh.material); sk.frustumCulled = false; bones.forEach(b => root.add(b)); root.add(sk);
+  root.updateMatrixWorld(true); sk.bind(new THREE.Skeleton(bones), new THREE.Matrix4());
+  return { root, sk, B, J }; }
+
+// pose solver ---------------------------------------------------------------
+const PR = new THREE.Matrix4().makeBasis(new V3(-1, 0, 0), new V3(0, 0, 1), new V3(0, 1, 0)), PQ = new THREE.Quaternion().setFromRotationMatrix(PR);   // upright -> belly-up, head forward
+const pq1 = new THREE.Quaternion(), pq2 = new THREE.Quaternion(), pv1 = new V3(), pv2 = new V3();
+function ikJoint(A, T, l1, l2, pole) { const d = Math.min(T.distanceTo(A), (l1 + l2) * 0.999), u = T.clone().sub(A).normalize(), a = (l1 * l1 - l2 * l2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+  const p = pole.clone().addScaledVector(u, -pole.dot(u)).normalize(); return { E: A.clone().addScaledVector(u, a).addScaledVector(p, h), W: A.clone().addScaledVector(u, d) }; }
+function setSeg(B, name, A, Bp, base) {      // place a bone at A and aim it at Bp, keeping the body's twist (base)
+  const d = B[name]; d.bone.position.copy(A); pv1.copy(d.rest).applyQuaternion(base).normalize(); pv2.copy(Bp).sub(A).normalize();
+  d.bone.quaternion.setFromUnitVectors(pv1, pv2).multiply(base); }
+function posePaciente(rig, st) {             // st: { phase, lift (0 = on ceiling, 1 = rearing/hanging), t, twitch }
+  const { B, J } = rig, t = st.t, h = 0.44 + 0.03 * Math.sin(t * 6), rear = st.rear || 0;
+  const body = PQ.clone().premultiply(pq1.setFromAxisAngle(new V3(1, 0, 0), 1.1 * rear)).premultiply(pq2.setFromAxisAngle(new V3(0, 0, 1), Math.sin(t * 2.1) * 0.05));
+  const org = new V3(Math.sin(t * 3) * 0.015, h + rear * 0.1, -0.1 - rear * 0.55), P = v => v.clone().sub(J.pelvis).applyQuaternion(body).add(org);
+  const pel = P(J.pelvis), ch = P(J.chest), nk = P(J.neck), tp = P(J.top);
+  setSeg(B, 'hips', pel, ch, body); setSeg(B, 'chest', ch, nk, body);
+  const headQ = body.clone().multiply(pq1.setFromAxisAngle(new V3(0, 1, 0), st.twitch || 0)).multiply(pq2.setFromAxisAngle(new V3(1, 0, 0), -0.35 - 0.6 * rear));   // face tipped back toward you
+  setSeg(B, 'head', nk, nk.clone().add(J.top.clone().sub(J.neck).applyQuaternion(headQ)), headQ);
+  const stride = 0.42, gaitLift = 0.15;
+  const foot = (off) => { const u = ((st.phase + off) / (2 * Math.PI) % 1 + 1) % 1; if (u < 0.62) return [stride * (0.5 - u / 0.62), 0]; const k = (u - 0.62) / 0.38; return [stride * (-0.5 + k), Math.sin(k * Math.PI) * gaitLift]; };
+  for (const [S, sideX, offA, offL] of [['L', -1, 0, Math.PI], ['R', 1, Math.PI, 0]]) {
+    // arm: hand planted on the ceiling beside the shoulder, elbow up and out
+    const sh = P(J['shoulder' + S]), [za, ya] = foot(offA), grip = new V3(sh.x + sideX * 0.34, ya, sh.z + 0.2 + za);
+    const la = B['upArm' + S].len, lf = B['foreArm' + S].len, lh = B['hand' + S].len, wristT = grip.clone().add(new V3(0, Math.min(lh * 0.55, 0.2), -0.05));
+    const arm = ikJoint(sh, wristT, la, lf, new V3(sideX * 0.6, 1, 0.2));
+    setSeg(B, 'upArm' + S, sh, arm.E, body); setSeg(B, 'foreArm' + S, arm.E, arm.W, body); setSeg(B, 'hand' + S, arm.W, grip.clone().add(new V3(sideX * 0.05, 0, 0.12)), body);
+    // leg: foot planted behind and out, knee up toward you
+    const hp = P(J['hip' + S]), [zl, yl] = foot(offL), step = new V3(hp.x + sideX * 0.36, yl + 0.06, hp.z - 0.28 + zl);
+    const leg = ikJoint(hp, step, B['thigh' + S].len, B['shin' + S].len, new V3(sideX * 0.5, 1, -0.1));
+    setSeg(B, 'thigh' + S, hp, leg.E, body); setSeg(B, 'shin' + S, leg.E, leg.W, body); setSeg(B, 'foot' + S, leg.W, leg.W.clone().add(new V3(sideX * 0.04, -0.05, -B['foot' + S].len)), body); }
+}
+
+function setupPaciente(gltf) {
+  const rig = rigPaciente(gltf.scene); const flip = R.rig.flip;
+  flip.children.slice().forEach(c => flip.remove(c)); flip.add(rig.root);
+  Object.assign(PM, { ready: true, rig, phase: 0, last: null, rear: 0, twitch: 0, twitchUntil: 0 });
+  R.rig = { flip, model: true }; logEvent('modelo', 'paciente_cargado'); }
+function animPacienteModel(mode, dt) {
+  const p = R.g.position, d = PM.last ? Math.hypot(p.x - PM.last.x, p.z - PM.last.z) : 0; PM.last = { x: p.x, z: p.z };
+  PM.phase += Math.min(d, 0.3) / (0.42 / 0.62) * Math.PI * 2 + (mode === 'idle' ? dt * 0.15 : 0);
+  PM.rear += ((mode === 'attack' ? 1 : mode === 'hang' ? 0.55 : 0) - PM.rear) * Math.min(1, dt * 12);
+  if (sim.t > PM.twitchUntil + rand(0.6, 2.5) && Math.random() < dt * 1.2) { PM.twitchUntil = sim.t + 0.08; PM.twTarget = rand(-0.9, 0.9); }   // the head snaps sideways now and then
+  PM.twitch += ((sim.t < PM.twitchUntil ? PM.twTarget : 0) - PM.twitch) * Math.min(1, dt * (sim.t < PM.twitchUntil ? 45 : 2.5));
+  posePaciente(PM.rig, { phase: PM.phase, t: sim.t, rear: PM.rear, twitch: PM.twitch + Math.sin(sim.t * 5.3) * 0.12 }); }
+function loadPaciente(urls = ['paciente.glb', 'https://a01782720.github.io/latido/paciente.glb']) {
+  if (!urls.length) return; try { new GLTFLoader().load(urls[0], g => { try { setupPaciente(g); } catch (e) { console.warn('paciente', e); PM.ready = false; } }, undefined, () => loadPaciente(urls.slice(1))); } catch (e) { console.warn(e); } }
 
 /* ================= HOSPITAL DRESSING =================
    Abandoned hospital: gurneys with covered bodies, wheelchairs, IV stands, instrument carts, ward doors, wall signs,
@@ -1541,9 +1638,9 @@ function ceilingStep(dt) {
       if (Math.hypot(p.x - tx, p.z - tz) < 0.35 || sim.t > RC.until) { R.state = 'prehang'; RC.until = sim.t + 0.6; silence(1.7); RC.silent = true; } break; }
     case 'prehang': turnToward(R.g, h.x, h.z, dt * 12); if (sim.t > RC.until) { R.state = 'hang'; R.mode = 'hang'; RC.until = sim.t + 0.95; RC.t0 = sim.t;
       sfxShriek(); sfxStinger(); flashRed(0.6); buzzAll(1, 450); heartReact(20); logEvent('techo_cuelga'); } break;
-    case 'hang': { turnToward(R.g, h.x, h.z, dt * 12); const k = clamp((sim.t - RC.t0) / 0.15, 0, 1); R.rig.flip.rotation.x = 0.6 * k; R.rig.flip.position.y = WALL_H - 0.35 * k;
+    case 'hang': { turnToward(R.g, h.x, h.z, dt * 12); const k = clamp((sim.t - RC.t0) / 0.15, 0, 1); R.rig.flip.rotation.x = 0.6 * k; R.rig.flip.position.y = WALL_H - (R.rig.model ? 0.8 : 0.35) * k;
       if (sim.t > RC.until) { R.state = 'retract'; RC.until = sim.t + 0.22; } break; }
-    case 'retract': { const k = clamp((RC.until - sim.t) / 0.22, 0, 1); R.rig.flip.rotation.x = 0.6 * k; R.rig.flip.position.y = WALL_H - 0.35 * k;
+    case 'retract': { const k = clamp((RC.until - sim.t) / 0.22, 0, 1); R.rig.flip.rotation.x = 0.6 * k; R.rig.flip.position.y = WALL_H - (R.rig.model ? 0.8 : 0.35) * k;
       if (sim.t > RC.until) { blackoutUntil = sim.t + 0.25; endCeiling('se_colgo'); } break; }
   }
 }
@@ -1879,8 +1976,8 @@ function drawWrist() {
 })();
 if (innerWidth < 640) $('collapse').click();
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-loadCirujano(); loadEnfermera();
-window.__latido = { NM, KM, setMorphNurse: on => setMorph(DAMA.rig, on), mapFree: (x, z) => cellAt(x, z) !== '#', scene, hemi, camera, GURNEY, CHAIR, CURT, MON, MONS, SCARES, solids, scarePropsStep, DAMA, R, K, DS, RC, KC, DIR, lockers, decals, shut, sealed, startScream, startCeiling, startHunt, startMajor, toggleHide, get hidden() { return hidden; },
+loadCirujano(); loadEnfermera(); loadPaciente();
+window.__latido = { PM, NM, KM, setMorphNurse: on => setMorph(DAMA.rig, on), mapFree: (x, z) => cellAt(x, z) !== '#', scene, hemi, camera, GURNEY, CHAIR, CURT, MON, MONS, SCARES, solids, scarePropsStep, DAMA, R, K, DS, RC, KC, DIR, lockers, decals, shut, sealed, startScream, startCeiling, startHunt, startMajor, toggleHide, get hidden() { return hidden; },
   get level() { return level; }, get hrAro() { return hrAro; }, flashlight, sim, algo, events, keys, triggers, dolly,
   tick: (sec, step = 0.02) => { for (let t = 0; t < sec; t += step) update(step); }, setYaw: v => { yaw = v; }, setPitch: v => { pitch = v; }, teleport: (c, r) => { dolly.position.set(cx(c), 0, cz(r)); } };
 </script>
