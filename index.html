@@ -234,6 +234,7 @@ const FREE = []; MAP.forEach((row, r) => [...row].forEach((ch, c) => { if (ch !=
 
 /* ================= RENDERER / SCENE ================= */
 const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.5;   // film-like highlights: faces under the flashlight keep their detail
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(innerWidth, innerHeight);
 renderer.xr.enabled = true;
@@ -249,7 +250,7 @@ const dolly = new THREE.Group(); scene.add(dolly);
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.03, 60);
 camera.rotation.order = 'YXZ'; camera.position.set(0, 1.6, 0); dolly.add(camera);
 const hemi = new THREE.HemisphereLight(0x1e2a27, 0x050403, 0.3); scene.add(hemi);
-const flashlight = new THREE.SpotLight(0xfff1d6, 55, 18, 0.42, 0.55, 1.6);
+const flashlight = new THREE.SpotLight(0xfff1d6, 24, 18, 0.42, 0.55, 1.0);   // softer falloff: close faces are not burnt white
 flashlight.position.set(0.15, -0.15, 0); camera.add(flashlight);
 const flTarget = new THREE.Object3D(); flTarget.position.set(0, -0.2, -3); camera.add(flTarget); flashlight.target = flTarget;
 // black veil around the head: used for blackouts and when a monster drags you away (works on screen and in VR)
@@ -425,19 +426,118 @@ function buildArm(side, skin, sleeve) { // long jointed arm with 5 three-joint f
   return { shoulder, elbow, wrist, fingers };
 }
 
-/* --- La Enfermera: a tall nurse in an old stained uniform and cap, long wet black hair over a calm porcelain face with closed eyes.
-       During the screamer that face tears open: black sockets with red pupils, cracked veined skin, an ear-to-ear grin of needle teeth. --- */
-MAT.uniform = (() => { const cv = stainedCanvas('#4a4843', 9), g = cv.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 256);
+MAT.uniform = (() => { const cv = stainedCanvas('#3a3834', 9), g = cv.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 256);
   gr.addColorStop(0.55, 'rgba(25,20,14,0)'); gr.addColorStop(1, 'rgba(25,20,14,.65)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
   return new THREE.MeshStandardMaterial({ map: texFrom(cv, 2, 1), bumpMap: texFrom(cv, 2, 1, false), bumpScale: 0.01, roughness: 0.9, side: THREE.DoubleSide }); })();
-MAT.apronN = new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#504e48', 14), 1, 1), roughness: 0.9, side: THREE.DoubleSide });
+MAT.apronN = new THREE.MeshStandardMaterial({ map: texFrom(stainedCanvas('#45433e', 14), 1, 1), roughness: 0.9, side: THREE.DoubleSide });
 MAT.stocking = new THREE.MeshStandardMaterial({ color: 0x15110f, roughness: 0.6 });
 MAT.shoe = new THREE.MeshStandardMaterial({ color: 0x0a0908, roughness: 0.35 });
 MAT.capN = (() => { const cv = makeCanvas(128, 64), g = cv.getContext('2d'); g.fillStyle = '#7d7a72'; g.fillRect(0, 0, 128, 64); grain(g, 128, 64, 20);
   g.fillStyle = '#7a1015'; g.fillRect(58, 14, 12, 36); g.fillRect(46, 26, 36, 12); return new THREE.MeshStandardMaterial({ map: texFrom(cv), roughness: 0.85 }); })();
-MAT.faceCalm = (() => { const cv = skinCanvas('#a39889', 5, 0, 'rgba(140,95,90,.2)'); return new THREE.MeshStandardMaterial({ map: texFrom(cv), roughness: 0.5, emissive: 0x0c0a08 }); })();
-MAT.faceHorror = (() => { const cv = skinCanvas('#8e8172', 46, 34, 'rgba(70,15,25,.5)'); return new THREE.MeshStandardMaterial({ map: texFrom(cv), bumpMap: texFrom(cv, 1, 1, false), bumpScale: 0.006, roughness: 0.5, emissive: 0x150b09 }); })();
-MAT.brow = new THREE.MeshStandardMaterial({ color: 0x2a1f1b, roughness: 0.9 });
+/* --- La Enfermera: a tall, gaunt nurse in an old blood-soaked uniform and cap, long wet black hair, a sculpted dead face:
+       sunken bruised sockets, milky cataract eyes that follow you, blood tears, lips sewn shut with surgical thread,
+       an old glass syringe full of blood in her hand. In the screamer the stitches tear, the jaw dislocates and drops,
+       the eyes roll back and she lunges with the needle. --- */
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const gauss = (x, y, cx, cy, sx, sy) => Math.exp(-((x - cx) ** 2 / (2 * sx * sx) + (y - cy) ** 2 / (2 * sy * sy)));
+const NH = { RX: 0.082, RY: 0.118, RZ: 0.1, mouthY: -0.063 };
+function nurseFaceDZ(x, y) { let dz = 0;
+  for (const s of [-1, 1]) {
+    dz -= 0.017 * gauss(x, y, s * 0.031, 0.016, 0.014, 0.011);      // deep eye sockets
+    dz += 0.006 * gauss(x, y, s * 0.03, 0.04, 0.02, 0.006);         // brow ridge
+    dz += 0.007 * gauss(x, y, s * 0.048, -0.008, 0.012, 0.01);      // high cheekbones
+    dz -= 0.011 * gauss(x, y, s * 0.04, -0.045, 0.014, 0.018);      // gaunt hollow cheeks
+    dz -= 0.005 * gauss(x, y, s * 0.066, 0.03, 0.01, 0.02); }       // sunken temples
+  const nose = smooth(0.03, -0.026, y) * (y > -0.032 ? 1 : Math.exp(-((y + 0.032) ** 2) / 0.00002));
+  dz += 0.02 * nose * Math.exp(-(x * x) / (2 * (0.005 + 0.006 * smooth(0, -0.03, y)) ** 2));   // thin bridge widening to the tip
+  dz += 0.0035 * gauss(x, y, 0, -0.056, 0.017, 0.004) + 0.004 * gauss(x, y, 0, -0.07, 0.015, 0.005);   // thin lips
+  dz -= 0.004 * gauss(x, y, 0, NH.mouthY, 0.022, 0.0015);           // mouth line
+  dz += 0.006 * gauss(x, y, 0, -0.105, 0.015, 0.012);               // pointed chin
+  return dz; }
+function nurseShape(ux, uy, uz) {                                   // unit-sphere point -> sculpted head point (metres)
+  let x = ux * NH.RX, y = uy * NH.RY, z = uz * NH.RZ; const jaw = smooth(-0.02, -0.11, y);
+  x *= 1 - 0.38 * jaw; if (z < 0) z *= 1.08; z *= 1 - 0.12 * jaw; const wf = smooth(0, 0.07, z);
+  return [x, y, z + wf * nurseFaceDZ(x, y), wf]; }
+function faceSurfZ(x, y) {                                          // z of the face surface at (x, y), for placing eyes, teeth and stitches
+  const jaw = smooth(-0.02, -0.11, y), rx = NH.RX * (1 - 0.38 * jaw), q = 1 - (x / rx) ** 2 - (y / NH.RY) ** 2;
+  const z = NH.RZ * Math.sqrt(Math.max(0.0004, q)) * (1 - 0.12 * jaw); return z + smooth(0, 0.07, z) * nurseFaceDZ(x, y); }
+function nurseFaceCanvas(horror) { const S = 512, cv = makeCanvas(S), g = cv.getContext('2d');
+  const P = (x, y) => [(x / 0.2 + 0.5) * S, (0.5 - y / 0.28) * S], R = r => r / 0.2 * S;
+  g.fillStyle = horror ? '#766e60' : '#81796b'; g.fillRect(0, 0, S, S); grain(g, S, S, 18);
+  blotches(g, S, 30, 40, 'rgba(110,125,100,.2)'); blotches(g, S, 22, 30, 'rgba(120,75,90,.16)'); blotches(g, S, 10, 20, 'rgba(60,50,40,.25)');
+  for (let i = 0; i < (horror ? 46 : 18); i++) { const [x, y] = P(rand(-0.09, 0.09), rand(-0.12, 0.12)); walk(g, x, y, 22, 6, horror ? 'rgba(35,20,55,.6)' : 'rgba(80,70,110,.3)', rand(0.8, 1.9), true); }
+  for (const s of [-1, 1]) { const [x, y] = P(s * 0.031, 0.015);                  // bruised, sunken sockets
+    const gr = g.createRadialGradient(x, y, 2, x, y, R(0.032)); gr.addColorStop(0, 'rgba(18,8,12,.97)'); gr.addColorStop(0.5, 'rgba(58,28,42,.75)'); gr.addColorStop(1, 'rgba(58,28,42,0)');
+    g.fillStyle = gr; g.beginPath(); g.ellipse(x, y, R(0.034), R(0.027), 0, 0, 6.28); g.fill();
+    for (let k = 0; k < (horror ? 4 : 2); k++) { const lw = rand(2, 5); let xx = x + rand(-12, 12), yy = y + R(0.01); const end = y + R(rand(0.05, 0.12));   // blood tears
+      g.strokeStyle = 'rgba(62,3,5,.92)'; g.lineWidth = lw; g.beginPath(); g.moveTo(xx, yy); while (yy < end) { yy += 6; xx += rand(-1.5, 1.5); g.lineTo(xx, yy); } g.stroke();
+      g.fillStyle = 'rgba(62,3,5,.92)'; g.beginPath(); g.arc(xx, yy, lw * 0.9, 0, 6.28); g.fill(); } }
+  for (const s of [-1, 1]) { const [x, y] = P(s * 0.007, -0.033); g.fillStyle = 'rgba(15,8,8,.85)'; g.beginPath(); g.ellipse(x, y, R(0.004), R(0.0024), 0, 0, 6.28); g.fill(); }
+  { const [x, y] = P(0, NH.mouthY);                                               // grey-violet cracked lips, sewn shut
+    g.fillStyle = 'rgba(80,52,62,.92)'; g.beginPath(); g.ellipse(x, y, R(0.025), R(0.011), 0, 0, 6.28); g.fill();
+    g.fillStyle = '#140406'; g.fillRect(x - R(0.027), y - R(0.0026), R(0.054), R(0.0052));
+    for (let k = 0; k < 8; k++) walk(g, x + rand(-R(0.02), R(0.02)), y + rand(-R(0.009), R(0.009)), 3, 3, 'rgba(30,10,12,.8)', 1, false);
+    for (let k = -3; k <= 3; k++) { const sx = x + k * R(0.0068); g.fillStyle = 'rgba(85,5,8,.9)'; g.beginPath(); g.arc(sx, y - R(0.0085), 2.6, 0, 6.28); g.arc(sx, y + R(0.0085), 2.6, 0, 6.28); g.fill(); }
+    for (const s of [-1, 1]) { let xx = x + s * R(0.024), yy = y; g.strokeStyle = 'rgba(62,3,5,.85)'; g.lineWidth = 3; g.beginPath(); g.moveTo(xx, yy);
+      while (yy < y + R(0.05)) { yy += 5; xx += rand(-1, 1); g.lineTo(xx, yy); } g.stroke(); } }
+  for (let k = 0; k < 3; k++) { const [x, y] = P(rand(0.03, 0.06), rand(-0.05, 0.0)); g.strokeStyle = 'rgba(70,20,20,.6)'; g.lineWidth = 1.4; g.beginPath(); g.moveTo(x, y); g.lineTo(x + rand(10, 30), y + rand(5, 20)); g.stroke(); }  // scratches
+  if (horror) { for (let i = 0; i < 26; i++) { const [x, y] = P(rand(-0.08, 0.08), rand(-0.11, 0.1)); walk(g, x, y, 16, 6, 'rgba(25,12,10,.8)', 1.3, true); }
+    blotches(g, S, 12, 26, 'rgba(70,5,8,.55)'); }
+  return cv; }
+const nurseFaceMat = h => { const cv = nurseFaceCanvas(h); return new THREE.MeshStandardMaterial({ map: texFrom(cv), bumpMap: texFrom(cv, 1, 1, false), bumpScale: h ? 0.004 : 0.0025, roughness: 0.6, emissive: 0x070605 }); };
+MAT.nurseFace = nurseFaceMat(false); MAT.nurseFaceH = nurseFaceMat(true);
+MAT.faceCalm = (() => { const cv = skinCanvas('#6e675b', 14, 2, 'rgba(90,60,70,.25)'); return new THREE.MeshStandardMaterial({ map: texFrom(cv), bumpMap: texFrom(cv, 1, 1, false), bumpScale: 0.003, roughness: 0.55, emissive: 0x0c0a08 }); })();
+MAT.sclera = (() => { const cv = makeCanvas(128), g = cv.getContext('2d'); g.fillStyle = '#c9c2a8'; g.fillRect(0, 0, 128, 128); grain(g, 128, 128, 10);
+  for (let i = 0; i < 26; i++) walk(g, rand(0, 128), Math.random() < 0.5 ? rand(0, 30) : rand(98, 128), 8, 4, 'rgba(150,20,20,.55)', rand(0.5, 1.2), true);
+  return new THREE.MeshStandardMaterial({ map: texFrom(cv), roughness: 0.2, emissive: 0x1a1710 }); })();
+MAT.iris = (() => { const cv = makeCanvas(64), g = cv.getContext('2d'); const gr = g.createRadialGradient(32, 32, 2, 32, 32, 32);   // milky cataract
+  gr.addColorStop(0, 'rgba(120,128,130,1)'); gr.addColorStop(0.25, '#aab4b6'); gr.addColorStop(0.8, '#8f9da2'); gr.addColorStop(0.92, '#4a5458'); gr.addColorStop(1, 'rgba(201,194,168,1)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.MeshStandardMaterial({ map: texFrom(cv), roughness: 0.05, emissive: 0x23282a }); })();
+MAT.cornea = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0, metalness: 0.2, transparent: true, opacity: 0.18 });
+MAT.thread = new THREE.MeshStandardMaterial({ color: 0x0c0606, roughness: 0.6 });
+MAT.glass = new THREE.MeshStandardMaterial({ color: 0xcfd8d4, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.32 });
+MAT.syrBlood = new THREE.MeshStandardMaterial({ color: 0x3d0306, roughness: 0.2, emissive: 0x0c0001 });
+MAT.yTooth = new THREE.MeshStandardMaterial({ color: 0xb3a47c, roughness: 0.35, emissive: 0x100d06 });
+function buildNurseHead() {
+  const geo = new THREE.SphereGeometry(1, 96, 120), p = geo.attributes.position, uv = geo.attributes.uv, scream = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) { const [x, y, z, wf] = nurseShape(p.getX(i), p.getY(i), p.getZ(i)); p.setXYZ(i, x, y, z); uv.setXY(i, 0.5 + x / 0.2, 0.5 + y / 0.28);
+    // scream target: the jaw dislocates and drops, the sewn mouth tears open deep into the skull
+    const below = smooth(NH.mouthY + 0.004, NH.mouthY - 0.005, y), lat = 1 - smooth(0.035, 0.075, Math.abs(x)), lip = gauss(x, y, 0, NH.mouthY, 0.024, 0.0045) * wf;
+    scream[i * 3] = x * (1 + 0.15 * below * lat * wf); scream[i * 3 + 1] = y - 0.085 * below * lat * wf; scream[i * 3 + 2] = z - 0.014 * below * lat * wf - 0.055 * lip; }
+  geo.computeVertexNormals();
+  const tmp = new THREE.BufferGeometry(); tmp.setIndex(geo.index); tmp.setAttribute('position', new THREE.Float32BufferAttribute(scream, 3)); tmp.computeVertexNormals();
+  geo.morphAttributes.position = [new THREE.Float32BufferAttribute(scream, 3)]; geo.morphAttributes.normal = [tmp.attributes.normal];
+  const head = new THREE.Mesh(geo, MAT.nurseFace); head.morphTargetInfluences = [0];
+  const G = new THREE.Group(); G.add(head);
+  const throat = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), MAT.void); throat.scale.set(0.022, 0.028, 0.025); throat.position.set(0, -0.072, 0.036); G.add(throat);
+  // teeth: crooked, yellowed, some missing; the lower row travels with the jaw
+  const up = [], lo = [];
+  for (let k = 0; k < 14; k++) { if (Math.random() < 0.15) continue; const x = -0.022 + k * 0.0034, zf = faceSurfZ(x, NH.mouthY) - 0.011;
+    up.push({ p: new V3(x, NH.mouthY + 0.004, zf), dir: new V3(rand(-0.15, 0.15), -1, rand(-0.1, 0.1)), len: rand(0.008, 0.016), r: 0.0026 });
+    if (Math.random() < 0.85) lo.push({ p: new V3(x, NH.mouthY - 0.004, zf), dir: new V3(rand(-0.15, 0.15), 1, rand(-0.1, 0.1)), len: rand(0.006, 0.013), r: 0.0024 }); }
+  const upperTeeth = teethMesh(up, MAT.yTooth); G.add(upperTeeth); const lowerTeeth = new THREE.Group(); lowerTeeth.add(teethMesh(lo, MAT.yTooth)); G.add(lowerTeeth);
+  // surgical stitches across the lips
+  const stitches = new THREE.Group();
+  for (let k = -3; k <= 3; k++) { const x = k * 0.0068, a = new V3(x - 0.001, NH.mouthY + 0.0085, faceSurfZ(x, NH.mouthY + 0.0085) + 0.0006), b = new V3(x + 0.001, NH.mouthY - 0.0085, faceSurfZ(x, NH.mouthY - 0.0085) + 0.0006);
+    const m = new V3(x, NH.mouthY, faceSurfZ(x, NH.mouthY) + 0.0025);
+    stitches.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, m, b), 6, 0.0007, 4), MAT.thread)); }
+  G.add(stitches);
+  // eyes: veined sclera, milky iris, a wet cornea that catches the flashlight
+  const eyes = [-1, 1].map(s => { const x = s * 0.031, y = 0.016, e = new THREE.Group(); e.position.set(x, y, faceSurfZ(x, y) - 0.004);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.0125, 18, 14), MAT.sclera); const iris = new THREE.Mesh(new THREE.CircleGeometry(0.0058, 20), MAT.iris); iris.position.z = 0.0121;
+    const cor = new THREE.Mesh(new THREE.SphereGeometry(0.0129, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.45), MAT.cornea); cor.rotation.x = Math.PI / 2;
+    e.add(ball, iris, cor); G.add(e); return e; });
+  return { G, head, upperTeeth, lowerTeeth, stitches, eyes }; }
+function buildSyringe() { const g = new THREE.Group();          // old glass syringe full of blood, needle pointing down
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.12, 14, 1, true), MAT.glass);
+  const fluid = new THREE.Mesh(new THREE.CylinderGeometry(0.0102, 0.0102, 0.085, 12), MAT.syrBlood); fluid.position.y = -0.016;
+  const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.09, 6), MAT.blade); rod.position.y = 0.07;
+  const thumb = new THREE.Mesh(new THREE.TorusGeometry(0.011, 0.003, 6, 14), MAT.blade); thumb.position.y = 0.118;
+  const flange = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.004, 0.014), MAT.blade); flange.position.y = 0.06;
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.009, 0.014, 10), MAT.blade); hub.position.y = -0.067;
+  const needle = new THREE.Mesh(new THREE.CylinderGeometry(0.0009, 0.0006, 0.075, 5), MAT.blade); needle.position.y = -0.111;
+  g.add(barrel, fluid, rod, thumb, flange, hub, needle); return g; }
+MAT.blade = MAT.blade || new THREE.MeshStandardMaterial({ color: 0x8b8d8f, metalness: 0.75, roughness: 0.4 });
 function buildDama(root) {
   // knee-length uniform: flared skirt, cinched waist, narrow shoulders
   const prof = [[0.25, 0.52], [0.24, 0.66], [0.215, 0.84], [0.185, 1.0], [0.158, 1.12], [0.152, 1.17], [0.168, 1.3], [0.178, 1.42], [0.168, 1.54], [0.14, 1.64], [0.085, 1.71], [0.05, 1.74]].map(([r, y]) => new THREE.Vector2(r, y));
@@ -454,74 +554,72 @@ function buildDama(root) {
   for (const s of [-1, 1]) { root.add(bone(new V3(s * 0.075, 0.62, 0), new V3(s * 0.068, 0.07, 0.01), 0.046, 0.03, MAT.stocking, 10));
     const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.06, 0.17), MAT.shoe); shoe.position.set(s * 0.068, 0.03, 0.04); root.add(shoe); }
   const torso = new THREE.Group(); torso.position.y = 1.7;
-  const neck = bone(new V3(0, 0, 0), new V3(0, 0.34, 0.02), 0.046, 0.032, MAT.faceCalm);
-  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.13, 0.16, 18, 1, true), MAT.uniform); collar.position.y = 0.05;
-  const headG = new THREE.Group(); headG.position.set(0, 0.45, 0.02);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(1, 36, 28), MAT.faceCalm); head.scale.set(0.132, 0.2, 0.145);
-  const zS = (x, y) => 0.145 * Math.sqrt(Math.max(0.0009, 1 - (x / 0.132) ** 2 - (y / 0.2) ** 2));
-  // calm face: closed eyelids, thin brows, a small nose, closed lips
-  const calmG = new THREE.Group();
-  [-0.047, 0.047].forEach(x => {
-    const lid = new THREE.Mesh(new THREE.TorusGeometry(0.022, 0.0024, 4, 14, Math.PI), MAT.lip); lid.scale.y = 0.4; lid.position.set(x, 0.045, zS(x, 0.045) + 0.001); calmG.add(lid);
-    const shade = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), new THREE.MeshStandardMaterial({ color: 0x6d5f55, roughness: 0.6, transparent: true, opacity: 0.55 }));
-    shade.scale.set(0.026, 0.014, 0.006); shade.position.set(x, 0.05, zS(x, 0.05) - 0.002); calmG.add(shade);
-    const brow = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.0022, 4, 14, Math.PI * 0.8), MAT.brow); brow.scale.y = 0.3; brow.rotation.z = Math.PI * 0.1 * (x > 0 ? -1 : 1) + Math.PI * 0.1;
-    brow.position.set(x, 0.085, zS(x, 0.085) + 0.001); calmG.add(brow); });
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 10), MAT.faceCalm); nose.scale.set(0.013, 0.032, 0.018); nose.position.set(0, -0.012, zS(0, -0.012) - 0.004); calmG.add(nose);
-  const lipU = new THREE.Mesh(new THREE.TorusGeometry(0.026, 0.0045, 5, 18, Math.PI * 0.9), MAT.lip); lipU.scale.y = 0.22; lipU.rotation.z = Math.PI * 1.05; lipU.position.set(0, -0.078, zS(0, -0.078)); calmG.add(lipU);
-  // horror face: hidden until the screamer
-  const horrorG = new THREE.Group(); horrorG.visible = false;
-  const grin = buildGrin({ rx: 0.132, ry: 0.2, rz: 0.145, w: 0.124, open: 0.03 }); horrorG.add(grin);
-  const glows = buildEyes(horrorG, [-0.048, 0.048], 0.05, 0.12, 0.034);
-  const scalp = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.55), MAT.hair); scalp.scale.set(0.14, 0.208, 0.153); scalp.rotation.x = -0.38; scalp.position.y = 0.012;
+  const neck = bone(new V3(0, 0, 0), new V3(0, 0.27, 0.015), 0.036, 0.029, MAT.faceCalm, 12);       // long, thin neck
+  for (const s of [-1, 1]) neck.add(bone(new V3(s * 0.015, -0.11, 0.018), new V3(s * 0.006, 0.1, 0.026), 0.006, 0.0045, MAT.faceCalm, 6));   // tendons
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.13, 0.2, 18, 1, true), MAT.uniform); collar.position.y = 0.07;
+  const headG = new THREE.Group(); headG.position.set(0, 0.36, 0.02);
+  const H = buildNurseHead();
+  const scalp = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 18, 0, Math.PI * 2, 0, Math.PI * 0.56), MAT.hair); scalp.scale.set(0.088, 0.13, 0.11); scalp.rotation.x = -0.5; scalp.position.set(0, 0.008, -0.006);
+  // long wet hair, parted in the middle: it frames the face and a few strands cross it
   const curves = [];
-  for (let i = 0; i < 70; i++) { const th = rand(-Math.PI, Math.PI), front = Math.abs(th) < 0.75; if (front && Math.random() < 0.75) continue;
-    const el = rand(0.15, 1.1), sx = 0.137 * Math.sin(th) * Math.cos(el), sy = 0.19 * Math.sin(el) * 0.9 + 0.03, sz = 0.148 * Math.cos(th) * Math.cos(el);
-    const L = rand(0.85, 1.25), drift = rand(-0.06, 0.06);
-    curves.push(new THREE.CatmullRomCurve3([new V3(sx, sy, sz), new V3(sx * 1.25, sy - 0.12, sz * 1.25 + (front ? 0.03 : 0)),
-      new V3(sx * 1.3 + drift, -0.3, sz * 1.3 + (front ? 0.05 : -0.02)), new V3(sx * 1.35 + drift * 2, -L, sz * 1.2 + rand(-0.05, 0.05))])); }
-  for (const x of [-0.07, -0.04, 0.05, 0.075]) curves.push(new THREE.CatmullRomCurve3([new V3(x * 0.5, 0.19, 0.08), new V3(x, 0.1, 0.16), new V3(x * 1.1, -0.06, 0.18), new V3(x * 1.3, -0.45, 0.13)])); // a veil of strands over the face
-  const hair = new THREE.Group(); hair.add(hairMesh(curves, 0.0038, MAT.hair));
-  const capBand = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.075, 0.012), MAT.capN); capBand.scale.set(0.85, 0.75, 1); capBand.position.set(0, 0.205, 0.06); capBand.rotation.x = -0.6;
-  const capTop = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.012, 0.11), MAT.capN); capTop.scale.set(0.85, 1, 0.85); capTop.position.set(0, 0.222, 0.01); capTop.rotation.x = -0.25;
-  const capG = new THREE.Group(); capG.add(capBand, capTop); calmG.add(capG);
-  headG.add(head, calmG, horrorG, scalp, hair);
+  for (let i = 0; i < 120; i++) { const th = rand(-Math.PI, Math.PI); if (Math.abs(th) < 0.55) continue;
+    const el = rand(0.25, 1.2), sx = 0.086 * Math.sin(th) * Math.cos(el), sy = 0.12 * Math.sin(el) * 0.95 + 0.01, sz = 0.1 * Math.cos(th) * Math.cos(el) - 0.005;
+    const L = rand(0.75, 1.15), drift = rand(-0.04, 0.04), side = Math.abs(th) < 1.5;
+    curves.push(new THREE.CatmullRomCurve3([new V3(sx, sy, sz), new V3(sx * 1.25, sy - 0.1, sz * 1.15), new V3(sx * 1.35 + drift, -0.25, sz * (side ? 0.9 : 1.2)), new V3(sx * 1.4 + drift * 2, -L, sz * (side ? 0.8 : 1.1) + rand(-0.04, 0.04))])); }
+  for (let i = 0; i < 26; i++) { const s = i % 2 ? 1 : -1, x0 = s * rand(0.004, 0.03);       // front strands from the parting down past the cheeks
+    curves.push(new THREE.CatmullRomCurve3([new V3(x0, 0.118, 0.04), new V3(s * rand(0.045, 0.06), 0.07, 0.085), new V3(s * rand(0.07, 0.09), -0.04, 0.075), new V3(s * rand(0.075, 0.1), -0.3, 0.06), new V3(s * rand(0.07, 0.11), -rand(0.55, 0.8), 0.05)])); }
+  for (let i = 0; i < 5; i++) { const s = i % 2 ? 1 : -1, x0 = s * rand(0.01, 0.025);       // loose wet strands over the face
+    curves.push(new THREE.CatmullRomCurve3([new V3(x0, 0.115, 0.06), new V3(x0 * 1.6, 0.05, 0.096), new V3(x0 * 1.2 + rand(-0.01, 0.01), -0.03, 0.105), new V3(x0 * 1.5, -0.11, 0.09), new V3(x0 * 2, -0.35, 0.07)])); }
+  const hair = new THREE.Group(); hair.add(hairMesh(curves, 0.0024, MAT.hair));
+  const capBand = new THREE.Mesh(new THREE.CylinderGeometry(0.078, 0.084, 0.045, 20, 1, true, -1.05, 2.1), MAT.capN); capBand.material.side = THREE.DoubleSide;   // folded nurse cap on the crown
+  const capG = new THREE.Group(); capG.add(capBand); capG.position.set(0, 0.112, -0.012); capG.rotation.x = -0.55;
+  headG.add(H.G, scalp, hair, capG);
   const armL = buildArm(-1, MAT.faceCalm, false), armR = buildArm(1, MAT.faceCalm, false);
   armL.shoulder.scale.setScalar(0.9); armR.shoulder.scale.setScalar(0.9);
   for (const a of [armL, armR]) {      // long uniform sleeves: only her grey hands are bare
     const up = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.068, 0.6, 12, 3, true), MAT.uniform); up.position.y = -0.27; a.shoulder.add(up);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.072, 14, 10), MAT.uniform); cap.scale.set(1, 0.8, 0.9); a.shoulder.add(cap);
     const lo = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.07, 0.5, 12, 3, true), MAT.uniform); lo.position.y = -0.26;
     const lp = lo.geometry.attributes.position; for (let i = 0; i < lp.count; i++) if (lp.getY(i) < -0.2) lp.setY(i, lp.getY(i) - Math.random() * 0.05); a.elbow.add(lo); }
+  const syringe = buildSyringe(); syringe.position.set(0.004, -0.1, 0.028); syringe.rotation.set(0.15, 0, 0); armR.wrist.add(syringe);
   torso.add(neck, collar, headG, armL.shoulder, armR.shoulder);
   root.add(dress, torso);
-  return { torso, headG, head, calmG, horrorG, grin, hair, arms: [armL, armR], cloth: { geo, base }, glows, morph: false };
+  return { torso, headG, head: H.head, H, capG, hair, arms: [armL, armR], cloth: { geo, base }, morph: false, jaw: 0, twitchUntil: 0, tw: new V3() };
 }
-function setMorph(rig, on) { if (rig.morph === on) return; rig.morph = on; rig.calmG.visible = !on; rig.horrorG.visible = on; rig.head.material = on ? MAT.faceHorror : MAT.faceCalm; }
+function setMorph(rig, on) { if (rig.morph === on) return; rig.morph = on; rig.head.material = on ? MAT.nurseFaceH : MAT.nurseFace; rig.H.stitches.visible = !on; rig.capG.visible = !on;
+  rig.jaw = on ? 1 : 0; }   // flicker: the full horror face snaps in, the dislocated jaw finishes opening in animDama
+const eyeTarget = new V3();
 function animDama(rig, grp, mode, dt) {
   if (!grp.visible) return;
   const t = sim.t, scream = mode === 'scream', k8 = Math.min(1, dt * 8);
-  if (scream) {   // violent: head shakes, skull stretches, the grin rips wider, arms snap up at you
-    rig.headG.rotation.set(-0.72 + rand(-0.12, 0.12), rand(-0.25, 0.25), rand(-0.4, 0.4));
-    rig.headG.scale.lerp(tmpS.set(0.94, 1.38, 1.06), Math.min(1, dt * 25)); rig.grin.scale.y += (1.6 - rig.grin.scale.y) * Math.min(1, dt * 25);
-    rig.hair.scale.lerp(tmpS.set(1.25, 1.05, 1.25), Math.min(1, dt * 20));
-    rig.torso.rotation.x += (0.78 - rig.torso.rotation.x) * Math.min(1, dt * 20); rig.torso.position.y += (1.42 - rig.torso.position.y) * Math.min(1, dt * 20);
-  } else {        // almost perfectly still, head bowed; in 'rise' she slowly lifts her face toward you
-    rig.headG.rotation.x += ((mode === 'rise' ? -0.05 : 0.38) - rig.headG.rotation.x) * Math.min(1, dt * (mode === 'rise' ? 1.6 : 4));
-    rig.headG.rotation.z += (0.13 - rig.headG.rotation.z) * k8; rig.headG.rotation.y = 0;
-    rig.headG.scale.lerp(tmpS.set(1, 1, 1), k8); rig.grin.scale.y = 1; rig.hair.scale.lerp(tmpS.set(1, 1, 1), k8);
-    rig.torso.rotation.x += (0 - rig.torso.rotation.x) * k8; rig.torso.position.y += (1.7 - rig.torso.position.y) * k8;
+  // occasional nervous twitch: the head snaps a few degrees and creeps back
+  if (!scream && t > rig.twitchUntil + rand(0.8, 3) && Math.random() < dt * 0.9) { rig.twitchUntil = t + 0.09; rig.tw.set(rand(-0.25, 0.25), rand(-0.35, 0.35), rand(-0.3, 0.3)); }
+  const tw = t < rig.twitchUntil ? 1 : 0; rig.tw.multiplyScalar(tw ? 1 : 1 - Math.min(1, dt * 3));
+  if (scream) {   // violent: head shakes, jaw hangs open, arms snap up at you with the needle
+    rig.headG.rotation.set(-0.5 + rand(-0.1, 0.1), rand(-0.2, 0.2), rand(-0.3, 0.3));
+    rig.headG.scale.lerp(tmpS.set(1, 1.08, 1), Math.min(1, dt * 25)); rig.hair.scale.lerp(tmpS.set(1.2, 1.04, 1.2), Math.min(1, dt * 20));
+    rig.torso.rotation.x += (0.6 - rig.torso.rotation.x) * Math.min(1, dt * 20); rig.torso.position.y += (1.48 - rig.torso.position.y) * Math.min(1, dt * 20);
+  } else {        // still, head bowed and tilted unnaturally to one side; in 'rise' she slowly lifts her face toward you
+    rig.headG.rotation.x += ((mode === 'rise' ? -0.08 : 0.3) + rig.tw.x - rig.headG.rotation.x) * Math.min(1, dt * (tw ? 40 : mode === 'rise' ? 1.6 : 4));
+    rig.headG.rotation.z += (0.42 + rig.tw.z - rig.headG.rotation.z) * (tw ? Math.min(1, dt * 40) : k8); rig.headG.rotation.y += (rig.tw.y - rig.headG.rotation.y) * (tw ? Math.min(1, dt * 40) : k8);
+    rig.headG.scale.lerp(tmpS.set(1, 1, 1), k8); rig.hair.scale.lerp(tmpS.set(1, 1, 1), k8);
+    rig.torso.rotation.x += (0.06 - rig.torso.rotation.x) * k8; rig.torso.position.y += (1.7 - rig.torso.position.y) * k8;
   }
-  rig.torso.rotation.z = Math.sin(t * 0.6) * 0.008;
-  rig.arms.forEach((a, i) => { const s = i ? 1 : -1;
-    a.shoulder.rotation.x += ((scream ? -1.5 : 0.02) - a.shoulder.rotation.x) * Math.min(1, dt * (scream ? 22 : 4));
-    a.shoulder.rotation.z += (s * (scream ? 0.35 : 0.08) - a.shoulder.rotation.z) * Math.min(1, dt * 10);
-    a.elbow.rotation.x += ((scream ? -0.1 : -0.18) - a.elbow.rotation.x) * k8;
-    a.fingers.forEach(f => f.forEach((j, k) => { j.rotation.x = scream ? -0.15 : 0.32 * (k + 1) * 0.5; })); });
+  // the jaw: sewn shut, then torn and dislocated
+  const target = rig.morph ? 1 : 0, inf = rig.head.morphTargetInfluences; inf[0] += (target - inf[0]) * Math.min(1, dt * (rig.morph ? 18 : 30));
+  const j = inf[0] + (rig.morph ? Math.sin(t * 40) * 0.04 : 0); rig.H.lowerTeeth.position.set(0, -0.085 * j, -0.014 * j); rig.H.lowerTeeth.visible = rig.H.upperTeeth.visible = inf[0] > 0.08;
+  // milky eyes follow you; when she screams they roll back white
+  camera.getWorldPosition(eyeTarget); rig.H.eyes.forEach(e => { e.lookAt(eyeTarget); if (rig.morph) e.rotateX(-1.15); });
+  rig.torso.rotation.z = Math.sin(t * 0.6) * 0.008 + (scream ? 0 : 0.03);
+  rig.arms.forEach((a, i) => { const s = i ? 1 : -1, stab = scream && i === 1;
+    a.shoulder.rotation.x += ((scream ? (stab ? -1.75 : -1.3) : 0.02) - a.shoulder.rotation.x) * Math.min(1, dt * (scream ? 22 : 4));
+    a.shoulder.rotation.z += (s * (scream ? 0.3 : 0.08) - a.shoulder.rotation.z) * Math.min(1, dt * 10);
+    a.elbow.rotation.x += ((scream ? (stab ? -0.5 : -0.1) : -0.18) - a.elbow.rotation.x) * k8;
+    a.fingers.forEach((f, fi) => f.forEach((jj, k) => { jj.rotation.x = i === 1 && fi < 4 ? 0.75 + 0.25 * k : scream ? -0.15 : 0.32 * (k + 1) * 0.5 + (tw ? rand(-0.3, 0.3) : 0); })); });
   const pos = rig.cloth.geo.attributes.position, b = rig.cloth.base, amp = scream ? 0.09 : 0.01;
   for (let i = 0; i < pos.count; i++) { const y = b[i * 3 + 1]; if (y > 1.0) continue; const kk = 1 - y, a = Math.atan2(b[i * 3], b[i * 3 + 2]);
     const w = 1 + amp * kk * Math.sin(t * (scream ? 14 : 1.5) + a * 5 + y * 6); pos.setX(i, b[i * 3] * w); pos.setZ(i, b[i * 3 + 2] * w); }
   pos.needsUpdate = true;
-  if (rig.morph) rig.glows.forEach(g => g.material.opacity = 0.7 + 0.3 * Math.sin(t * 30));
 }
 const tmpS = new V3();
 
@@ -1502,7 +1600,10 @@ function atmosphere(dt) {
   hemi.intensity = 0.36 - a * 0.16;
   flashlight.color.copy(C_WARM).lerp(C_RED, Math.max(0, a - 0.35) * 0.7); flashlight.angle = 0.44 - a * 0.1; flashlight.distance = 19 - a * 5;
   const out = sim.t < blackoutUntil, flickP = sim.t < flickerUntil ? 0.35 : a * a * 0.07;
-  let fl = (62 - a * 18) * (1 - 0.45 * a * pulse); if (Math.random() < flickP) fl *= Math.random() * 0.3;
+  let fl = (62 - a * 18) * 0.42 * (1 - 0.45 * a * pulse);
+  { const hh = getHead(); let near = freeAhead(3).d + 0.4;             // the eye adapts: something right in front of you is not burnt white
+    for (const m of [DAMA, K]) if (m.g.visible) { const q = m.g.position, dd = Math.hypot(q.x - hh.x, q.z - hh.z); if (dd < near && inView({ x: q.x, y: 1.4, z: q.z }, 0.6)) near = dd; }
+    fl *= 0.32 + 0.68 * smooth(0.5, 2.6, near); } if (Math.random() < flickP) fl *= Math.random() * 0.3;
   flashlight.intensity = out ? 0 : fl;
   bulbs.forEach(b => { const on = !out && Math.random() > flickP * 1.5; b.l.color.copy(C_BULB).lerp(C_BULB_RED, Math.max(0, a - 0.35) * 1.4); b.b.material.color.copy(b.l.color); b.l.intensity = on ? b.base * (1 - 0.65 * a) : 0.1; b.b.visible = on; });
   $('vignette').style.opacity = (Math.max(0, a - 0.3) * 0.8 + pulse * a * 0.25).toFixed(2);
@@ -1581,7 +1682,7 @@ function drawWrist() {
 })();
 if (innerWidth < 640) $('collapse').click();
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-window.__latido = { mapFree: (x, z) => cellAt(x, z) !== '#', scene, hemi, camera, GURNEY, CHAIR, CURT, MON, MONS, SCARES, solids, scarePropsStep, DAMA, R, K, DS, RC, KC, DIR, lockers, decals, shut, sealed, startScream, startCeiling, startHunt, startMajor, toggleHide, get hidden() { return hidden; },
+window.__latido = { setMorphNurse: on => setMorph(DAMA.rig, on), mapFree: (x, z) => cellAt(x, z) !== '#', scene, hemi, camera, GURNEY, CHAIR, CURT, MON, MONS, SCARES, solids, scarePropsStep, DAMA, R, K, DS, RC, KC, DIR, lockers, decals, shut, sealed, startScream, startCeiling, startHunt, startMajor, toggleHide, get hidden() { return hidden; },
   get level() { return level; }, get hrAro() { return hrAro; }, flashlight, sim, algo, events, keys, triggers, dolly,
   tick: (sec, step = 0.02) => { for (let t = 0; t < sec; t += step) update(step); }, setYaw: v => { yaw = v; }, setPitch: v => { pitch = v; }, teleport: (c, r) => { dolly.position.set(cx(c), 0, cz(r)); } };
 </script>
