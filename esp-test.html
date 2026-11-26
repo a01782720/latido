@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Simulador ESP32</title>
+<style>
+:root { --bg: #070b09; --panel: #0e1512; --line: #22302a; --ink: #d9e2de; --dim: #7d8b86; --trace: #39ff88; --warn: #ffb020; --alarm: #ff3344;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; --body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 var(--body); }
+main { max-width: 560px; margin: 0 auto; padding: 20px 16px 40px; display: grid; gap: 16px; }
+h1 { margin: 0; font: 600 13px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: grid; gap: 12px; }
+.vitals { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.bpm { font: 600 64px/1 var(--mono); color: var(--trace); font-variant-numeric: tabular-nums; }
+.bpm small { font-size: 14px; color: var(--dim); margin-left: 4px; }
+.status { display: flex; align-items: center; gap: 8px; font: 600 12px var(--mono); color: var(--dim); }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
+.dot[data-s="on"] { background: var(--trace); box-shadow: 0 0 8px var(--trace); } .dot[data-s="wait"] { background: var(--warn); } .dot[data-s="bad"] { background: var(--alarm); }
+canvas { width: 100%; height: 90px; background: #020403; border: 1px solid var(--line); border-radius: 4px; display: block; }
+label { display: grid; gap: 4px; color: var(--dim); font-size: 13px; }
+input[type=text], input[type=password] { font: 14px var(--mono); color: var(--ink); background: #16201c; border: 1px solid var(--line); border-radius: 4px; padding: 9px 10px; width: 100%; }
+input[type=range] { width: 100%; accent-color: var(--trace); }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.check { display: flex; gap: 8px; align-items: center; color: var(--ink); font-size: 14px; }
+button { font: 600 15px var(--body); color: var(--ink); background: #16201c; border: 1px solid var(--line); border-radius: 6px; padding: 12px 16px; cursor: pointer; flex: 1; }
+button.primary { background: #123522; border-color: var(--trace); }
+button.scare { background: #3a0a10; border-color: var(--alarm); }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font: 12px var(--mono); color: var(--dim); }
+.grid b { display: block; color: var(--ink); font-size: 16px; }
+p.note { margin: 0; color: var(--dim); font-size: 13px; }
+code { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Latido VR · Simulador del ESP32</h1>
+  <p class="note">Esta página se hace pasar por el ESP32: manda latidos al mismo servidor y canal que usará el circuito real. Ábrela en el celular o la laptop y, en los lentes, abre el juego con <code>?esp=1</code>.</p>
+
+  <section class="card" aria-label="Señal">
+    <div class="vitals"><div class="bpm"><span id="bpm">72</span><small>lpm</small></div>
+      <div class="status"><span class="dot" id="dot"></span><span id="state">desconectado</span></div></div>
+    <canvas id="ecg" width="1040" height="180" aria-label="Trazo enviado"></canvas>
+    <div class="grid"><div>RR<b id="rr">—</b></div><div>RMSSD<b id="rmssd">—</b></div><div>Mensajes<b id="sent">0</b></div></div>
+    <label>Frecuencia en reposo: <b id="restVal">72</b> lpm<input type="range" id="rest" min="50" max="140" value="72"></label>
+    <div class="row"><button class="scare" id="scare">Susto (+35 lpm)</button><button id="calm">Calmar</button></div>
+    <label class="check"><input type="checkbox" id="electrodes" checked> Electrodos puestos</label>
+    <label class="check"><input type="checkbox" id="raw" checked> Mandar también el trazo crudo (100 Hz)</label>
+  </section>
+
+  <section class="card" aria-label="Conexión">
+    <label>Servidor (WebSocket seguro)<input type="text" id="broker" spellcheck="false"></label>
+    <label>Canal<input type="text" id="topic" spellcheck="false"></label>
+    <div class="row"><input type="text" id="user" placeholder="usuario (opcional)" spellcheck="false" style="flex:1"><input type="password" id="pass" placeholder="contraseña (opcional)" style="flex:1"></div>
+    <div class="row"><button class="primary" id="go">Conectar y mandar</button></div>
+    <p class="note">Publica en <code id="t1">latidovr/equipo/datos</code> cada 250 ms y en <code id="t2">latidovr/equipo/ecg</code> el trazo. Es el mismo formato que programará el ESP32.</p>
+  </section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const DEF = { broker: 'wss://broker.hivemq.com:8884/mqtt', topic: 'latidovr/equipo', user: '', pass: '' };
+const q = new URLSearchParams(location.search); let cfg = { ...DEF };
+try { Object.assign(cfg, JSON.parse(localStorage.getItem('latidoEspTest') || '{}')); } catch (e) {}
+for (const k of Object.keys(DEF)) if (q.get(k)) cfg[k] = q.get(k);
+for (const k of Object.keys(DEF)) $(k).value = cfg[k];
+const showTopics = () => { $('t1').textContent = cfg.topic + '/datos'; $('t2').textContent = cfg.topic + '/ecg'; }; showTopics();
+
+// heart model: resting rate + scare that fades, a little natural variability
+const H = { rest: 72, spike: 0, hr: 72, phase: 0, t: 0, lastBeat: 0, beatsSinceMsg: 0, rr: [], beats: [] };
+$('rest').addEventListener('input', e => { H.rest = +e.target.value; $('restVal').textContent = H.rest; });
+$('scare').addEventListener('click', () => { H.spike = Math.min(70, H.spike + 35); });
+$('calm').addEventListener('click', () => { H.spike = 0; });
+const G = (t, m, s, a) => a * Math.exp(-((t - m) ** 2) / (2 * s * s));
+const pqrst = t => G(t, -0.16, 0.025, 0.12) + G(t, -0.03, 0.008, -0.12) + G(t, 0, 0.011, 1) + G(t, 0.03, 0.01, -0.25) + G(t, 0.26, 0.045, 0.3);
+function ecgAt(t) { let v = 0; for (const b of H.beats) v += pqrst(t - b); return 512 + 380 * v + (Math.random() - 0.5) * 14; }   // ADC-like counts
+
+let client = null, sent = 0, rawBuf = [], rawT = 0;
+function setState(txt, s) { $('state').textContent = txt; $('dot').dataset.s = s; }
+$('go').addEventListener('click', () => {
+  if (client) { client.end(true); client = null; $('go').textContent = 'Conectar y mandar'; setState('desconectado', ''); return; }
+  cfg = { broker: $('broker').value.trim() || DEF.broker, topic: $('topic').value.trim().replace(/\/+$/, '') || DEF.topic, user: $('user').value.trim(), pass: $('pass').value };
+  try { localStorage.setItem('latidoEspTest', JSON.stringify(cfg)); } catch (e) {}
+  showTopics(); setState('conectando…', 'wait');
+  const opt = { clientId: 'latidovr-simesp-' + Math.random().toString(16).slice(2, 10), reconnectPeriod: 2500, connectTimeout: 8000 };
+  if (cfg.user) { opt.username = cfg.user; opt.password = cfg.pass; }
+  client = mqtt.connect(cfg.broker, opt); $('go').textContent = 'Detener';
+  client.on('connect', () => setState('mandando datos', 'on'));
+  client.on('reconnect', () => setState('reconectando…', 'wait'));
+  client.on('error', e => setState('error: ' + (e.message || e), 'bad'));
+  client.on('close', () => { if (client) setState('sin conexión', 'bad'); });
+});
+
+const cv = $('ecg'), g = cv.getContext('2d'); let sweep = 0, lastY = null;
+let last = performance.now(), msgT = 0;
+function tick(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now; H.t += dt; H.spike *= Math.exp(-dt / 10);
+  H.hr = Math.max(40, Math.min(190, H.rest + H.spike + 2.5 * Math.sin(H.t * 2 * Math.PI * 0.25) + (Math.random() - 0.5)));
+  H.phase += H.hr / 60 * dt;
+  if (H.phase >= 1) { H.phase -= 1; const rr = H.t - H.lastBeat; H.lastBeat = H.t; H.beats.push(H.t); if (H.beats.length > 4) H.beats.shift();
+    if (rr > 0.3 && rr < 2) { H.rr.push(rr * 1000); if (H.rr.length > 30) H.rr.shift(); } H.beatsSinceMsg++; }
+  // raw trace at 100 Hz
+  rawT += dt; while (rawT >= 0.01) { rawT -= 0.01; const v = $('electrodes').checked ? ecgAt(H.t - rawT) : 512 + (Math.random() - 0.5) * 900; rawBuf.push(Math.round(v));
+    const y = cv.height * 0.9 - (v - 300) / 700 * cv.height * 0.8;
+    g.fillStyle = '#020403'; g.fillRect(sweep, 0, 16, cv.height); if (lastY !== null && sweep > 0) { g.strokeStyle = '#39ff88'; g.lineWidth = 2.4; g.beginPath(); g.moveTo(sweep - 2, lastY); g.lineTo(sweep, y); g.stroke(); }
+    lastY = y; sweep = (sweep + 2) % cv.width; if (sweep < 2) lastY = null; }
+  // messages every 250 ms, same format as the ESP32
+  msgT += dt;
+  if (msgT >= 0.25) { msgT = 0; const recent = H.rr.slice(-5), bpm = recent.length ? 60000 / (recent.reduce((a, b) => a + b, 0) / recent.length) : H.hr;
+    let ss = 0; for (let i = 1; i < H.rr.length; i++) ss += (H.rr[i] - H.rr[i - 1]) ** 2; const rmssd = H.rr.length > 3 ? Math.sqrt(ss / (H.rr.length - 1)) : 0;
+    const el = $('electrodes').checked, msg = { bpm: el ? Math.round(bpm * 10) / 10 : 0, rr: el && H.rr.length ? +(H.rr.at(-1) / 1000).toFixed(3) : 0, rmssd: el ? Math.round(rmssd) : 0, electrodos: el, latido: el ? H.beatsSinceMsg : 0, t: Math.round(performance.now()) };
+    H.beatsSinceMsg = 0;
+    $('bpm').textContent = el ? Math.round(bpm) : '--'; $('rr').textContent = msg.rr ? Math.round(msg.rr * 1000) + ' ms' : '—'; $('rmssd').textContent = msg.rmssd ? msg.rmssd + ' ms' : '—';
+    if (client && client.connected) { client.publish(cfg.topic + '/datos', JSON.stringify(msg)); sent++;
+      if ($('raw').checked) client.publish(cfg.topic + '/ecg', JSON.stringify({ ecg: rawBuf })); $('sent').textContent = sent; }
+    rawBuf = []; }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

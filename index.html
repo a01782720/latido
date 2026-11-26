@@ -79,6 +79,15 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 #bProg { height: 3px; background: var(--panel-line); border-radius: 2px; overflow: hidden; }
 #bProg i { display: block; height: 100%; width: 0; background: var(--trace); }
 .note { color: var(--ink-dim); font-size: 11px; line-height: 1.45; margin: 0; }
+.src { display: grid; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--panel-line); }
+.src label { display: grid; gap: 3px; color: var(--ink-dim); font-size: 11px; }
+.src .row label { display: inline; }
+.src input { font: 12px var(--f-mono); color: var(--ink); background: #16201c; border: 1px solid var(--panel-line); border-radius: 3px; padding: 5px 6px; min-width: 0; flex: 1; }
+#espCfg { display: grid; gap: 6px; } #espCfg[hidden] { display: none; }
+#srcDot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-dim); display: inline-block; }
+#srcDot[data-s="live"] { background: var(--trace); box-shadow: 0 0 8px var(--trace); }
+#srcDot[data-s="wait"] { background: var(--warn); } #srcDot[data-s="bad"] { background: var(--alarm); }
+#srcState { font: 600 11px var(--f-mono); color: var(--ink-dim); }
 
 /* Start / end screens */
 .screen { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(3,3,4,.86); z-index: 5;
@@ -134,8 +143,19 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 <button id="hideBtn" hidden>Esconderse</button>
 
 <aside id="monitor" aria-label="Simulador de ECG">
-  <header><h2>Monitor ECG · simulado</h2><button id="collapse" aria-expanded="true">ocultar</button></header>
+  <header><h2 id="monTitle">Monitor ECG · simulado</h2><button id="collapse" aria-expanded="true">ocultar</button></header>
   <div id="monBody">
+    <div class="src">
+      <div class="row"><label for="srcSel">Señal</label>
+        <select id="srcSel"><option value="sim">Simulada</option><option value="esp">ESP32 (MQTT)</option></select>
+        <span id="srcDot" data-s="sim" aria-hidden="true"></span><span id="srcState">simulada</span></div>
+      <div id="espCfg" hidden>
+        <label>Servidor <input id="brokerIn" spellcheck="false"></label>
+        <label>Canal <input id="topicIn" spellcheck="false"></label>
+        <div class="row"><input id="userIn" placeholder="usuario (opcional)" spellcheck="false"><input id="passIn" type="password" placeholder="contraseña (opcional)"></div>
+        <div class="row"><button class="act" id="espBtn">Conectar</button><span class="note" id="espInfo"></span></div>
+      </div>
+    </div>
     <div class="vitals">
       <div class="hr"><span id="hrVal">72</span><small>lpm</small></div>
       <div id="statePill" data-s="-1">sin baseline</div>
@@ -163,7 +183,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
     <div id="bProg"><i></i></div>
     <label class="check"><input type="checkbox" id="autoReact" checked> El corazón reacciona a los sustos del juego</label>
     <label class="check"><input type="checkbox" id="natural" checked> Variabilidad natural (respiración)</label>
-    <p class="note">Estados ECG: medio ≥ +10 % y alto ≥ +20 % sobre el baseline, sostenidos 3 s. El juego arranca en nivel medio y sube con tu corazón. Esta señal se reemplazará por la del ESP32.</p>
+    <p class="note">Estados ECG: medio ≥ +10 % y alto ≥ +20 % sobre el baseline, sostenidos 3 s. El juego arranca en nivel medio y sube con tu corazón. Con «ESP32 (MQTT)» el juego usa los latidos reales del circuito; si deja de recibir datos 3 s, vuelve solo a la señal simulada.</p>
   </div>
 </aside>
 
@@ -1442,12 +1462,79 @@ function onBeat(rrSec) {
   $('rrVal').textContent = Math.round(rrSec * 1000) + ' ms';
   if (sim.rr.length > 3) { let s = 0; for (let i = 1; i < sim.rr.length; i++) s += (sim.rr[i] - sim.rr[i - 1]) ** 2; $('rmssdVal').textContent = Math.sqrt(s / (sim.rr.length - 1)).toFixed(0) + ' ms'; }
 }
+/* ================= ESP32 LINK: MQTT over secure WebSocket =================
+   The ESP32 publishes {bpm, rr, rmssd, electrodos, latido, t} on <canal>/datos (4 per second) and, optionally, {ecg: [...]} at 100 Hz on <canal>/ecg.
+   Real beats then drive everything the simulated heart drove (baseline, fear states, monitors, beeps). If no data arrives for 3 s,
+   or the electrodes come off, the game falls back to the simulated heart by itself. Open the game with ?esp=1 to connect on load. */
+const ESP_DEF = { broker: 'wss://broker.hivemq.com:8884/mqtt', topic: 'latidovr/equipo', user: '', pass: '' };
+const ESP = { mode: 'sim', client: null, connected: false, err: '', lastMsg: -99, lastRaw: -99, bpm: null, rr: null, rmssd: null, electrodes: true, pendingBeats: 0, raw: [], msgs: 0, wasLive: false, cfg: null };
+const nowS = () => performance.now() / 1000;
+ESP.cfg = (() => { const c = { ...ESP_DEF }; try { Object.assign(c, JSON.parse(localStorage.getItem('latidoEsp') || '{}')); } catch (e) {}
+  const q = new URLSearchParams(location.search); for (const k of ['broker', 'topic', 'user', 'pass']) if (q.get(k)) c[k] = q.get(k); return c; })();
+function espSaveCfg() { try { localStorage.setItem('latidoEsp', JSON.stringify({ ...ESP.cfg, mode: ESP.mode })); } catch (e) {} }
+function loadMqttLib() { return window.mqtt ? Promise.resolve(window.mqtt) : new Promise((ok, fail) => { const sc = document.createElement('script');
+  sc.src = 'https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js'; sc.onload = () => ok(window.mqtt); sc.onerror = fail; document.head.appendChild(sc); }); }
+async function espConnect() {
+  ESP.mode = 'esp'; ESP.err = ''; ESP.msgs = 0; espSaveCfg();
+  try { const mqtt = await loadMqttLib(); if (ESP.client) ESP.client.end(true);
+    const opt = { clientId: 'latidovr-juego-' + Math.random().toString(16).slice(2, 10), reconnectPeriod: 2500, connectTimeout: 8000, clean: true };
+    if (ESP.cfg.user) { opt.username = ESP.cfg.user; opt.password = ESP.cfg.pass; }
+    const c = mqtt.connect(ESP.cfg.broker, opt); ESP.client = c;
+    c.on('connect', () => { ESP.connected = true; ESP.err = ''; c.subscribe([ESP.cfg.topic + '/datos', ESP.cfg.topic + '/ecg']); logEvent('esp', 'conectado'); });
+    c.on('close', () => { ESP.connected = false; });
+    c.on('error', e => { ESP.err = e && e.message ? e.message : 'error de conexión'; });
+    c.on('message', (topic, buf) => espMessage(topic, buf.toString()));
+  } catch (e) { ESP.err = 'no se pudo cargar la librería MQTT'; } }
+function espDisconnect() { if (ESP.client) ESP.client.end(true); ESP.client = null; ESP.connected = false; ESP.mode = 'sim'; espSaveCfg(); }
+function espMessage(topic, txt) { let m; try { m = JSON.parse(txt); } catch (e) { return; } const t = nowS();
+  if (topic.endsWith('/ecg')) { if (Array.isArray(m.ecg)) { for (const v of m.ecg) if (Number.isFinite(+v)) ESP.raw.push(+v); if (ESP.raw.length > 600) ESP.raw.splice(0, ESP.raw.length - 600); ESP.lastRaw = t; } return; }
+  ESP.lastMsg = t; ESP.msgs++;
+  if (typeof m.electrodos === 'boolean') ESP.electrodes = m.electrodos;
+  if (+m.bpm > 25 && +m.bpm < 230) ESP.bpm = +m.bpm;
+  if (+m.rr > 0.25 && +m.rr < 2.5) ESP.rr = +m.rr;
+  if (m.rmssd != null && Number.isFinite(+m.rmssd)) ESP.rmssd = +m.rmssd;
+  ESP.pendingBeats = Math.min(4, ESP.pendingBeats + Math.max(0, Math.min(3, m.latido | 0))); }
+function espLive() { return ESP.mode === 'esp' && ESP.connected && ESP.electrodes && ESP.bpm !== null && nowS() - ESP.lastMsg < 3; }
+let espUiNext = 0;
+function espStatusTick() {
+  const live = espLive();
+  if (ESP.wasLive && !live && running) { toast(ESP.electrodes ? 'Se perdió la señal del ESP32: modo simulado' : 'Electrodos sueltos: modo simulado'); logEvent('esp', 'perdido'); }
+  if (!ESP.wasLive && live) logEvent('esp', 'en_vivo');
+  ESP.wasLive = live;
+  if (nowS() < espUiNext) return; espUiNext = nowS() + 0.25;
+  let txt = 'simulada', st = 'sim';
+  if (ESP.mode === 'esp') {
+    if (live) { txt = 'ESP32 en vivo'; st = 'live'; }
+    else if (!ESP.connected) { txt = ESP.err ? 'sin conexión: ' + ESP.err.slice(0, 40) : 'conectando…'; st = ESP.err ? 'bad' : 'wait'; }
+    else if (!ESP.msgs) { txt = 'conectado · esperando al ESP32'; st = 'wait'; }
+    else if (!ESP.electrodes) { txt = 'electrodos sueltos → simulada'; st = 'bad'; }
+    else { txt = 'sin datos del ESP32 → simulada'; st = 'bad'; } }
+  $('srcState').textContent = txt; $('srcDot').dataset.s = st;
+  $('monTitle').textContent = 'Monitor ECG · ' + (live ? 'ESP32 en vivo' : 'simulado');
+  $('espInfo').textContent = ESP.mode === 'esp' && ESP.msgs ? ESP.msgs + ' mensajes' : '';
+  $('espBtn').textContent = ESP.mode === 'esp' ? 'Desconectar' : 'Conectar';
+  $('hrSlider').disabled = live; }
+(function espUi() {
+  $('brokerIn').value = ESP.cfg.broker; $('topicIn').value = ESP.cfg.topic; $('userIn').value = ESP.cfg.user; $('passIn').value = ESP.cfg.pass;
+  const readCfg = () => { ESP.cfg = { broker: $('brokerIn').value.trim() || ESP_DEF.broker, topic: $('topicIn').value.trim().replace(/\/+$/, '') || ESP_DEF.topic, user: $('userIn').value.trim(), pass: $('passIn').value }; };
+  $('srcSel').addEventListener('change', e => { const esp = e.target.value === 'esp'; $('espCfg').hidden = !esp; if (!esp) espDisconnect(); else { readCfg(); espConnect(); } });
+  $('espBtn').addEventListener('click', () => { if (ESP.mode === 'esp') { espDisconnect(); $('srcSel').value = 'sim'; $('espCfg').hidden = true; } else { readCfg(); espConnect(); } });
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem('latidoEsp') || '{}'); } catch (e) {}
+  const q = new URLSearchParams(location.search);
+  if (q.get('esp') === '1' || (saved.mode === 'esp' && q.get('esp') !== '0')) { $('srcSel').value = 'esp'; $('espCfg').hidden = false; espConnect(); }
+})();
 let lastBeatT = 0;
 function stepHeart(dt) {
-  sim.t += dt; sim.spike *= Math.exp(-dt / 9);
-  const rsa = $('natural').checked ? 3 * Math.sin(sim.t * 2 * Math.PI * 0.25) + (Math.random() - 0.5) * 1.5 : 0;
-  sim.hr = clamp(sim.rest + sim.spike + rsa, 40, 190); sim.phase += sim.hr / 60 * dt;
-  if (sim.phase >= 1) { sim.phase -= 1; const rr = sim.t - lastBeatT; lastBeatT = sim.t; sim.beats.push(sim.t); if (sim.beats.length > 6) sim.beats.shift(); monitorBeep(); if (rr > 0.25) onBeat(rr); }
+  sim.t += dt; sim.spike *= Math.exp(-dt / 9); espStatusTick();
+  if (espLive()) {             // real heart: every beat the ESP32 detected is a beat here
+    sim.hr += (ESP.bpm - sim.hr) * Math.min(1, dt * 4); sim.rest = Math.round(ESP.bpm); sim.spike = 0; sim.phase = 0;
+    while (ESP.pendingBeats > 0) { ESP.pendingBeats--; const rr = ESP.rr || 60 / ESP.bpm; lastBeatT = sim.t; sim.beats.push(sim.t); if (sim.beats.length > 6) sim.beats.shift(); monitorBeep(); onBeat(rr); }
+    if (ESP.rmssd !== null) $('rmssdVal').textContent = Math.round(ESP.rmssd) + ' ms';
+  } else {
+    ESP.pendingBeats = 0;
+    const rsa = $('natural').checked ? 3 * Math.sin(sim.t * 2 * Math.PI * 0.25) + (Math.random() - 0.5) * 1.5 : 0;
+    sim.hr = clamp(sim.rest + sim.spike + rsa, 40, 190); sim.phase += sim.hr / 60 * dt;
+    if (sim.phase >= 1) { sim.phase -= 1; const rr = sim.t - lastBeatT; lastBeatT = sim.t; sim.beats.push(sim.t); if (sim.beats.length > 6) sim.beats.shift(); monitorBeep(); if (rr > 0.25) onBeat(rr); } }
   $('hrVal').textContent = Math.round(sim.hr);
   $('bProg').firstElementChild.style.width = algo.collecting ? Math.min(100, (sim.t - algo.collectStart) / algo.collectDur * 100) + '%' : algo.baseline ? '100%' : '0';
   $('baseVal').textContent = algo.baseline ? algo.baseline.toFixed(0) + ' lpm' : '—';
@@ -1460,7 +1547,17 @@ function stepHeart(dt) {
 const ecgCv = $('ecg'), eg = ecgCv.getContext('2d'); let sweepX = 0, lastY = null;
 function pqrst(t) { const G = (m, s, a) => a * Math.exp(-((t - m) ** 2) / (2 * s * s)); return G(-0.16, 0.025, 0.12) + G(-0.03, 0.008, -0.12) + G(0, 0.011, 1) + G(0.03, 0.01, -0.25) + G(0.26, 0.045, 0.3); }
 function ecgSample(t) { let v = 0; const next = (sim.beats.at(-1) ?? 0) + 60 / sim.hr; for (const b of sim.beats) v += pqrst(t - b); return v + pqrst(t - next); }
+let rawCarry = 0, rawLo = 0, rawHi = 1;
 function drawECG(dt) { const w = ecgCv.width, h = ecgCv.height, n = Math.max(1, Math.round(dt * 200));
+  if (espLive() && nowS() - ESP.lastRaw < 1.5 && ESP.raw.length) {      // the real trace (100 Hz -> 2 px per sample)
+    if (ESP.raw.length > 120) ESP.raw.splice(0, ESP.raw.length - 60);  // keep latency low if a burst arrived
+    rawCarry += dt * 100; let k = Math.min(Math.floor(rawCarry), ESP.raw.length); rawCarry -= k; if (rawCarry > 3) rawCarry = 0;
+    if (ESP.raw.length > 8) { let lo = Infinity, hi = -Infinity; for (const v of ESP.raw) { lo = Math.min(lo, v); hi = Math.max(hi, v); } const k2 = rawHi - rawLo === 1 && rawLo === 0 ? 1 : 0.05; rawLo += (lo - rawLo) * k2; rawHi += (hi - rawHi) * k2; }
+    while (k-- > 0) { const v = ESP.raw.shift(), y = h * 0.86 - clamp((v - rawLo) / Math.max(1e-6, rawHi - rawLo), 0, 1) * h * 0.74;
+      for (let r = 0; r < 2; r++) { eg.fillStyle = '#020403'; eg.fillRect(sweepX, 0, 14, h);
+        if (lastY !== null && sweepX > 0) { eg.strokeStyle = '#39ff88'; eg.lineWidth = 2.2; eg.beginPath(); eg.moveTo(sweepX - 1, lastY); eg.lineTo(sweepX, y); eg.stroke(); }
+        lastY = y; sweepX = (sweepX + 1) % w; if (sweepX === 0) lastY = null; } }
+    return; }
   for (let i = 0; i < n; i++) { const t = sim.t - (n - 1 - i) / 200, y = h * 0.62 - ecgSample(t) * h * 0.5; eg.fillStyle = '#020403'; eg.fillRect(sweepX, 0, 14, h);
     if (lastY !== null && sweepX > 0) { eg.strokeStyle = '#39ff88'; eg.lineWidth = 2.2; eg.beginPath(); eg.moveTo(sweepX - 1, lastY); eg.lineTo(sweepX, y); eg.stroke(); }
     lastY = y; sweepX = (sweepX + 1) % w; if (sweepX === 0) lastY = null; } }
@@ -1958,6 +2055,7 @@ function drawWrist() {
   g.fillStyle = '#39ff88'; g.font = '600 96px monospace'; g.fillText(String(Math.round(sim.hr)), 24, 110); g.font = '28px monospace'; g.fillText('lpm', 200, 110);
   const st = algo.state, label = st < 0 ? (algo.collecting ? 'MIDIENDO' : 'SIN BASE') : ['BAJO', 'MEDIO', 'ALTO'][st];
   g.fillStyle = ['#39ff88', '#ffb020', '#ff3344'][Math.max(0, st)]; g.font = '600 44px monospace'; g.fillText(label, 300, 100);
+  const lv = espLive(); g.fillStyle = lv ? '#39ff88' : ESP.mode === 'esp' ? '#ff3344' : '#7d8b86'; g.font = '600 24px monospace'; g.fillText(lv ? '● ESP32' : ESP.mode === 'esp' ? '○ SIN ESP' : 'SIMULADO', 330, 40);
   g.fillStyle = '#d9e2de'; g.font = '30px monospace';
   g.fillText(algo.collecting ? 'Quédate quieto…' : algo.baseline ? 'ΔFC ' + (algo.dRel >= 0 ? '+' : '') + Math.round(algo.dRel * 100) + ' %' : '', 24, 170);
   g.fillText(hidden ? 'ESCONDIDO' : nearLocker() ? 'A: esconderte' : 'Tarjeta ' + keysTaken + '/1', 300, 170);
@@ -1977,7 +2075,7 @@ function drawWrist() {
 if (innerWidth < 640) $('collapse').click();
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 loadCirujano(); loadEnfermera(); loadPaciente();
-window.__latido = { PM, NM, KM, setMorphNurse: on => setMorph(DAMA.rig, on), mapFree: (x, z) => cellAt(x, z) !== '#', scene, hemi, camera, GURNEY, CHAIR, CURT, MON, MONS, SCARES, solids, scarePropsStep, DAMA, R, K, DS, RC, KC, DIR, lockers, decals, shut, sealed, startScream, startCeiling, startHunt, startMajor, toggleHide, get hidden() { return hidden; },
+window.__latido = { ESP, espLive, PM, NM, KM, setMorphNurse: on => setMorph(DAMA.rig, on), mapFree: (x, z) => cellAt(x, z) !== '#', scene, hemi, camera, GURNEY, CHAIR, CURT, MON, MONS, SCARES, solids, scarePropsStep, DAMA, R, K, DS, RC, KC, DIR, lockers, decals, shut, sealed, startScream, startCeiling, startHunt, startMajor, toggleHide, get hidden() { return hidden; },
   get level() { return level; }, get hrAro() { return hrAro; }, flashlight, sim, algo, events, keys, triggers, dolly,
   tick: (sec, step = 0.02) => { for (let t = 0; t < sec; t += step) update(step); }, setYaw: v => { yaw = v; }, setPitch: v => { pitch = v; }, teleport: (c, r) => { dolly.position.set(cx(c), 0, cz(r)); } };
 </script>
